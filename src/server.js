@@ -5,14 +5,20 @@ const morgan = require('morgan');
 require('dotenv').config();
 
 const { OllamaOrchestrator } = require('./services/orchestrator');
+const { EmbeddingClassifier } = require('./services/embeddingClassifier');
 const { RequestLogger } = require('./middleware/requestLogger');
 const { ErrorHandler } = require('./middleware/errorHandler');
+const { SessionManager } = require('./services/sessionManager');
+const { SmartContextManager } = require('./services/smartContextManager');
 
 const app = express();
 const PORT = process.env.PORT || 3003;
 
-// Initialize the orchestrator
+// Initialize services
 const orchestrator = new OllamaOrchestrator();
+const embeddingClassifier = new EmbeddingClassifier();
+const sessionManager = new SessionManager();
+const contextManager = new SmartContextManager();
 
 // Middleware
 app.use(helmet());
@@ -35,6 +41,11 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Session management endpoint (for debugging)
+app.get('/api/sessions', (req, res) => {
+  res.json(sessionManager.getStats());
+});
+
 // Ollama API endpoints - these maintain complete compatibility
 app.post('/api/generate', async (req, res, next) => {
   try {
@@ -47,40 +58,157 @@ app.post('/api/generate', async (req, res, next) => {
 
 app.post('/api/chat', async (req, res, next) => {
   try {
-    const axios = require('axios');
+    // Session management: Create or get session ID
+    const userAgent = req.get('User-Agent') || 'unknown';
+    const sessionId = sessionManager.getSessionId(req.body, userAgent);
+    const sessionHistory = sessionManager.getSessionHistory(sessionId);
 
-    // Get available models to resolve model names
-    const modelsResponse = await axios.get(`${process.env.OLLAMA_BASE_URL || 'http://localhost:11434'}/api/tags`);
-    const availableModels = modelsResponse.data.models || [];
+    // Log session information
+    console.log(`🆔 Session: ${sessionId} | History: ${sessionHistory.length} messages | User-Agent: ${userAgent.substring(0, 50)}...`);
 
-    // Extract the requested model name
-    const requestedModel = req.body.model;
+    // Use embedding-based classification for intelligent model selection
+    const analysis = await embeddingClassifier.classifyRequest(req.body);
+    const recommendedModel = analysis.recommendedModel;
 
-    // Find exact match or best fallback
-    let resolvedModel = requestedModel;
-    if (!availableModels.find(m => m.name === requestedModel)) {
-      // Try to find a model that starts with the requested name
-      const fallbackModel = availableModels.find(m => m.name.startsWith(requestedModel.split(':')[0]));
-      if (fallbackModel) {
-        resolvedModel = fallbackModel.name;
-        console.log(`Model resolution: ${requestedModel} -> ${resolvedModel}`);
-      }
+    // Log the embedding classification decision
+    console.log(`🧠 Embedding Classification: "${req.body.model}" -> "${recommendedModel}"`);
+    console.log(`📊 Analysis: ${analysis.taskType} | ${analysis.complexity} | ${analysis.language} | ${analysis.reasoning}`);
+
+    // Get smart context for the request (fast heuristics + AI when needed)
+    const context = await contextManager.getSmartContext(req.body, analysis.taskType, analysis.complexity);
+    if (context.files.length > 0 || context.gitStatus || context.reasoning) {
+      console.log(`📁 Smart Context: ${contextManager.formatContext(context)}`);
     }
 
-    // Forward request with resolved model name
-    const ollamaResponse = await axios.post(`${process.env.OLLAMA_BASE_URL || 'http://localhost:11434'}/api/chat`, {
-      ...req.body,
-      model: resolvedModel
-    }, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    // Check if planning is needed
+    if (analysis.needsPlanning) {
+      const planningSteps = analysis.planningSteps;
+      console.log(`📋 Planning Required: ${planningSteps.join(' → ')}`);
+    }
 
-        // Stream the response directly to maintain Ollama's exact format
-    // This preserves the original headers and streaming behavior
-    res.write(ollamaResponse.data);
-    res.end();
+        // Forward to Ollama with the intelligently selected model
+    const axios = require('axios');
+
+        // Debug: Log what we're sending to Ollama
+    const ollamaRequest = {
+      ...req.body,
+      model: recommendedModel,
+      stream: req.body.stream !== false // Default to true for Continue compatibility
+    };
+
+    // Clean the request to remove any potentially problematic fields
+    const cleanRequest = {
+      model: ollamaRequest.model,
+      messages: ollamaRequest.messages,
+      stream: ollamaRequest.stream
+    };
+
+    // Add options if they exist and are valid
+    if (ollamaRequest.options && typeof ollamaRequest.options === 'object') {
+      cleanRequest.options = ollamaRequest.options;
+    }
+
+    // Add any other valid Ollama parameters
+    if (ollamaRequest.template) cleanRequest.template = ollamaRequest.template;
+    if (ollamaRequest.context) cleanRequest.context = ollamaRequest.context;
+    if (ollamaRequest.keep_alive) cleanRequest.keep_alive = ollamaRequest.keep_alive;
+
+    console.log(`📤 Sending to Ollama:`, JSON.stringify(cleanRequest, null, 2));
+    console.log(`🔍 Original request body:`, JSON.stringify(req.body, null, 2));
+    console.log(`🎯 Recommended model:`, recommendedModel);
+    console.log(`🧹 Cleaned request:`, JSON.stringify(cleanRequest, null, 2));
+
+    // Check if streaming is requested
+    const isStreaming = ollamaRequest.stream;
+
+    if (isStreaming) {
+      // Handle streaming response
+      try {
+        const ollamaResponse = await axios.post(`${process.env.OLLAMA_BASE_URL || 'http://localhost:11434'}/api/chat`, cleanRequest, {
+          responseType: 'stream',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        // Set streaming headers
+        res.setHeader('Content-Type', 'application/x-ndjson');
+        res.setHeader('Transfer-Encoding', 'chunked');
+
+                // Intercept the stream to inject model information
+        let firstChunk = true;
+        ollamaResponse.data.on('data', (chunk) => {
+          if (firstChunk) {
+            // Inject model info into the first chunk
+            const chunkStr = chunk.toString();
+            if (chunkStr.includes('"model"')) {
+              // Replace the model name with our enhanced version
+              const enhancedChunk = chunkStr.replace(
+                `"model":"${recommendedModel}"`,
+                `"model":"${recommendedModel} (OllamaGeek enhanced)"`
+              );
+              res.write(enhancedChunk);
+            } else {
+              res.write(chunk);
+            }
+            firstChunk = false;
+          } else {
+            res.write(chunk);
+          }
+        });
+
+        ollamaResponse.data.on('end', () => {
+          res.end();
+        });
+
+        // Update session after successful streaming response
+        sessionManager.updateSession(sessionId, req.body.messages || []);
+      } catch (ollamaError) {
+        console.error('❌ Ollama streaming error:', {
+          status: ollamaError.response?.status,
+          data: ollamaError.response?.data,
+          message: ollamaError.message,
+          request: ollamaRequest
+        });
+        throw ollamaError;
+      }
+    } else {
+      // Handle non-streaming response
+      try {
+        const ollamaResponse = await axios.post(`${process.env.OLLAMA_BASE_URL || 'http://localhost:11434'}/api/chat`, cleanRequest, {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+                // Enhance the response with model information
+        const enhancedResponse = {
+          ...ollamaResponse.data,
+          model: `${ollamaResponse.data.model} (OllamaGeek enhanced)`,
+          _ollamaGeek: {
+            originalModel: req.body.model,
+            selectedModel: recommendedModel,
+            taskType: analysis.taskType,
+            complexity: analysis.complexity,
+            reasoning: analysis.reasoning
+          }
+        };
+
+        // Return the enhanced response
+        res.json(enhancedResponse);
+
+        // Update session after successful response
+        sessionManager.updateSession(sessionId, req.body.messages || []);
+      } catch (ollamaError) {
+        console.error('❌ Ollama non-streaming error:', {
+          status: ollamaError.response?.status,
+          data: ollamaError.response?.data,
+          message: ollamaError.message,
+          request: ollamaRequest
+        });
+        throw ollamaError;
+      }
+    }
   } catch (error) {
     next(error);
   }
@@ -148,7 +276,13 @@ app.listen(PORT, () => {
   console.log(`🚀 OllamaGeek API wrapper running on port ${PORT}`);
   console.log(`📡 Forwarding requests to: ${process.env.OLLAMA_BASE_URL || 'http://localhost:11434'}`);
   console.log(`🧠 Orchestration enabled: ${process.env.ENABLE_AGENTIC_ORCHESTRATION === 'true' ? 'Yes' : 'No'}`);
+  console.log(`🆔 Session management enabled with ${sessionManager.maxHistoryLength} message history`);
 });
+
+// Clean up expired sessions every 5 minutes
+setInterval(() => {
+  sessionManager.cleanupExpiredSessions();
+}, 5 * 60 * 1000);
 
 // Graceful shutdown
 process.on('SIGTERM', () => {

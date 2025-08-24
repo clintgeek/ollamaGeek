@@ -1,5 +1,5 @@
 const { ModelSelector } = require('./modelSelector');
-const { ContextManager } = require('./contextManager');
+const { SmartContextManager } = require('./smartContextManager');
 const { ToolManager } = require('./toolManager');
 const { OllamaClient } = require('./ollamaClient');
 const { ResponseProcessor } = require('./responseProcessor');
@@ -8,7 +8,7 @@ const { Logger } = require('../utils/logger');
 class OllamaOrchestrator {
   constructor() {
     this.modelSelector = new ModelSelector();
-    this.contextManager = new ContextManager();
+    this.contextManager = new SmartContextManager();
     this.toolManager = new ToolManager();
     this.ollamaClient = new OllamaClient();
     this.responseProcessor = new ResponseProcessor();
@@ -253,6 +253,16 @@ class OllamaOrchestrator {
 
       // Estimate token count
       analysis.estimatedTokens = this._estimateTokenCount(content);
+
+      // Debug logging
+      console.log('🔍 Content Analysis:', {
+        content: content.substring(0, 100) + '...',
+        isCode: analysis.isCode,
+        isTechnical: analysis.isTechnical,
+        complexity: analysis.complexity,
+        language: analysis.language,
+        estimatedTokens: analysis.estimatedTokens
+      });
     }
 
     return analysis;
@@ -288,7 +298,26 @@ class OllamaOrchestrator {
       /while\s*\(/
     ];
 
-    return codePatterns.some(pattern => pattern.test(content));
+    const codeKeywords = [
+      /write\s+a\s+\w+\s+function/i,
+      /create\s+a\s+\w+\s+function/i,
+      /implement\s+a\s+\w+\s+function/i,
+      /design\s+a\s+\w+\s+system/i,
+      /build\s+a\s+\w+\s+application/i,
+      /develop\s+a\s+\w+\s+program/i,
+      /code\s+a\s+\w+\s+function/i,
+      /program\s+a\s+\w+\s+function/i,
+      /python/i,
+      /javascript/i,
+      /java/i,
+      /cpp/i,
+      /rust/i,
+      /go/i,
+      /typescript/i
+    ];
+
+    return codePatterns.some(pattern => pattern.test(content)) ||
+           codeKeywords.some(keyword => keyword.test(content));
   }
 
   /**
