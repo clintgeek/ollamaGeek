@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  ollamageek:
+    build: .
+    container_name: ollamageek-wrapper
+    ports:
+      - "3003:3003"
+    environment:
+      - NODE_ENV=production
+      - PORT=3003
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - LOG_LEVEL=info
+      - ENABLE_AGENTIC_ORCHESTRATION=true
+      - MAX_CONTEXT_LENGTH=8192
+      - ENABLE_TOOL_CALLING=true
+      - ENABLE_MULTI_STEP_PLANNING=true
+      - REQUEST_TIMEOUT=30000
+      - MAX_CONCURRENT_REQUESTS=5
+      - LOG_REQUESTS=true
+      - LOG_RESPONSES=false
+      - LOG_ORCHESTRATION_DECISIONS=true
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    networks:
+      - ollama-network
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-server
+    ports:
+      - "11435:11434"  # Expose Ollama on different port to avoid conflict
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    restart: unless-stopped
+    networks:
+      - ollama-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  ollama_data:
+    driver: local
+
+networks:
+  ollama-network:
+    driver: bridge
