@@ -1,0 +1,1 @@
+function calculateSum(a, b) { return a + b; } function calculateProduct(a, b) { return a * b; } function calculateDivision(a, b) { if (b === 0) { console.log("Division by zero"); return null; } return a / b; }
