@@ -1,75 +1,30 @@
-const { AutoToolExecutor } = require('./autoToolExecutor');
-const { execSync } = require('child_process');
-const fs = require('fs').promises;
 const path = require('path');
 
-class AgenticWorkflowExecutor extends AutoToolExecutor {
+class AgenticWorkflowExecutor {
   constructor() {
-    super();
     this.workflowCache = new Map();
   }
 
   /**
-   * Execute a complete workflow based on natural language request
+   * Plan tools for a request using Ollama's intelligence
    */
-  async executeWorkflow(request, context) {
-    console.log('🧠 Agentic Workflow Analysis:', request);
+  async planTools(request, context) {
+    console.log('🧠 Tool Planning Analysis:', request);
 
-    // Analyze the request for workflow patterns
-    const workflow = this._analyzeWorkflow(request);
+    const content = this._extractContent(request);
 
-    if (!workflow) {
-      console.log('❌ No workflow pattern detected, falling back to individual tools');
-      return null;
+    // Use Ollama to understand what tools are needed
+    const toolPlan = await this._getToolPlanFromOllama(content, context);
+
+    if (!toolPlan) {
+      console.log('❌ No tool plan generated, falling back to basic tool suggestions');
+      return this._getBasicToolSuggestions(content);
     }
 
-    console.log(`🚀 Executing ${workflow.type} workflow:`, workflow.steps.length, 'steps');
+    console.log(`🎯 Tool plan generated: ${toolPlan.tools.length} tools needed`);
+    console.log(`📋 Plan description: ${toolPlan.description}`);
 
-    const results = [];
-
-    try {
-      for (const step of workflow.steps) {
-        console.log(`📋 Executing step: ${step.description}`);
-
-        const result = await this._executeWorkflowStep(step, context);
-        results.push({
-          step: step.description,
-          success: result.success,
-          result: result,
-          error: result.error
-        });
-
-        if (!result.success) {
-          console.log(`❌ Step failed: ${step.description}`, result.error);
-          break;
-        }
-
-        console.log(`✅ Step completed: ${step.description}`);
-      }
-
-      // Execute post-workflow actions
-      if (workflow.postActions) {
-        for (const action of workflow.postActions) {
-          console.log(`🔧 Post-action: ${action.description}`);
-          await this._executeWorkflowStep(action, context);
-        }
-      }
-
-      return {
-        workflow: workflow.type,
-        steps: workflow.steps.length,
-        results: results,
-        success: results.every(r => r.success)
-      };
-
-    } catch (error) {
-      console.error('❌ Workflow execution failed:', error);
-      return {
-        workflow: workflow.type,
-        error: error.message,
-        success: false
-      };
-    }
+    return toolPlan;
   }
 
   /**
@@ -104,6 +59,11 @@ class AgenticWorkflowExecutor extends AutoToolExecutor {
       return this._createPythonWorkflow(content);
     }
 
+    // Arduino Project
+    if (this._isArduinoProject(content)) {
+      return this._createArduinoWorkflow(content);
+    }
+
     // Git Repository Setup
     if (this._isGitSetup(content)) {
       return this._createGitWorkflow(content);
@@ -123,27 +83,27 @@ class AgenticWorkflowExecutor extends AutoToolExecutor {
     if (this._isCommandExecutionRequest(content)) {
       return this._createCommandExecutionWorkflow(content);
     }
-    
+
     // AI-powered code analysis
     if (this._isAIAnalysisRequest(content)) {
       return this._createAIAnalysisWorkflow(content);
     }
-    
+
     // AI-powered code refactoring
     if (this._isAIRefactoringRequest(content)) {
       return this._createAIRefactoringWorkflow(content);
     }
-    
+
     // AI-powered test generation
     if (this._isAITestGenerationRequest(content)) {
       return this._createAITestGenerationWorkflow(content);
     }
-    
+
     // AI-powered debugging
     if (this._isAIDebuggingRequest(content)) {
       return this._createAIDebuggingWorkflow(content);
     }
-    
+
     return null;
   }
 
@@ -156,7 +116,10 @@ class AgenticWorkflowExecutor extends AutoToolExecutor {
       (lowerContent.includes('react') && lowerContent.includes('express')) ||
       (lowerContent.includes('full stack') && (lowerContent.includes('react') || lowerContent.includes('node'))) ||
       (lowerContent.includes('full stack') && lowerContent.includes('project')) ||
-      (lowerContent.includes('fullstack') && lowerContent.includes('project'))
+      (lowerContent.includes('fullstack') && lowerContent.includes('project')) ||
+      // Enhanced detection for basic applications
+      (lowerContent.includes('basic') && lowerContent.includes('application') && lowerContent.includes('node') && lowerContent.includes('express') && lowerContent.includes('react')) ||
+      (lowerContent.includes('create') && lowerContent.includes('basic') && lowerContent.includes('application') && lowerContent.includes('using') && lowerContent.includes('node') && lowerContent.includes('express') && lowerContent.includes('react'))
     );
   }
 
@@ -209,6 +172,20 @@ class AgenticWorkflowExecutor extends AutoToolExecutor {
       lowerContent.includes('python') ||
       lowerContent.includes('flask') ||
       lowerContent.includes('django')
+    );
+  }
+
+  /**
+   * Check if request is for an Arduino project
+   */
+  _isArduinoProject(content) {
+    const lowerContent = content.toLowerCase();
+    return (
+      lowerContent.includes('arduino') ||
+      (lowerContent.includes('led') && lowerContent.includes('flash')) ||
+      (lowerContent.includes('onboard') && lowerContent.includes('led')) ||
+      (lowerContent.includes('basic') && lowerContent.includes('arduino')) ||
+      (lowerContent.includes('create') && lowerContent.includes('arduino'))
     );
   }
 
@@ -504,93 +481,15 @@ class AgenticWorkflowExecutor extends AutoToolExecutor {
     };
   }
 
-  /**
-   * Execute a workflow step
-   */
-  async _executeWorkflowStep(step, context) {
-    try {
-      console.log(`🔍 Executing step: ${step.action} with params:`, JSON.stringify(step.params, null, 2));
+  // Execution methods removed - this is now a planning-only class
 
-      let result;
-      switch (step.action) {
-        case 'create_directories':
-          result = await this._createDirectories(step.params);
-          break;
-
-        case 'create_file':
-          console.log(`📝 Creating file: ${step.params.path}`);
-          result = await this.createFile(step.params.path, step.params.content, step.params.language);
-          console.log(`📝 File creation result:`, result);
-          break;
-
-        case 'run_terminal':
-          result = await this.runTerminal(step.params.command, step.params.cwd);
-          break;
-
-        case 'ai_analyze':
-          result = await this._runAIAnalysis(step.params);
-          break;
-
-        case 'ai_refactor':
-          result = await this._runAIRefactoring(step.params);
-          break;
-
-        case 'ai_generate_tests':
-          result = await this._runAITestGeneration(step.params);
-          break;
-
-        case 'ai_debug':
-          result = await this._runAIDebugging(step.params);
-          break;
-
-        default:
-          result = { success: false, error: `Unknown action: ${step.action}` };
-      }
-
-      console.log(`✅ Step ${step.action} completed with result:`, result);
-      return result;
-    } catch (error) {
-      console.error(`❌ Step ${step.action} failed with error:`, error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Create multiple directories
-   */
-  async _createDirectories(params) {
-    const { projectName, structure } = params;
-
-    try {
-      // Create the project in the parent directory (where the user is working)
-      const parentDir = path.resolve(process.cwd(), '..');
-      const projectPath = path.join(parentDir, projectName);
-
-      // Create main project directory
-      await fs.mkdir(projectPath, { recursive: true });
-
-      // Create subdirectories
-      for (const dir of structure) {
-        await fs.mkdir(path.join(projectPath, dir), { recursive: true });
-      }
-
-      return {
-        success: true,
-        action: 'directories_created',
-        projectPath,
-        projectName,
-        directories: structure
-      };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
+  // Directory creation methods removed - this is now a planning-only class
 
   /**
    * Extract project name from content
    */
   _extractProjectName(content) {
-    // Simple and robust project name extraction
+    // Enhanced project name extraction with better context understanding
     console.log(`🔍 Extracting project name from: "${content}"`);
 
     // Look for "called" pattern first (most reliable)
@@ -599,6 +498,33 @@ class AgenticWorkflowExecutor extends AutoToolExecutor {
       const projectName = calledMatch[1];
       console.log(`🎯 Extracted project name from "called": ${projectName}`);
       return projectName;
+    }
+
+    // Look for "in a [name] folder" pattern
+    const inFolderMatch = content.match(/in\s+a\s+([a-zA-Z0-9-_]+)\s+folder/i);
+    if (inFolderMatch) {
+      const projectName = inFolderMatch[1];
+      console.log(`🎯 Extracted project name from "in a [name] folder": ${projectName}`);
+      return projectName;
+    }
+
+    // Look for "in [name] folder" pattern
+    const inNameFolderMatch = content.match(/in\s+([a-zA-Z0-9-_]+)\s+folder/i);
+    if (inNameFolderMatch) {
+      const projectName = inNameFolderMatch[1];
+      console.log(`🎯 Extracted project name from "in [name] folder": ${projectName}`);
+      return projectName;
+    }
+
+    // Look for "create [name]" pattern
+    const createMatch = content.match(/create\s+(?:a\s+)?([a-zA-Z0-9-_]+)/i);
+    if (createMatch) {
+      const projectName = createMatch[1];
+      // Skip common words and prepositions
+      if (!['basic', 'node', 'express', 'react', 'application', 'app', 'project', 'using', 'in', 'a', 'an', 'the', 'new', 'full', 'stack', 'create', 'make', 'generate'].includes(projectName.toLowerCase())) {
+        console.log(`🎯 Extracted project name from "create [name]": ${projectName}`);
+        return projectName;
+      }
     }
 
     // Look for project/app/application followed by a name
@@ -613,11 +539,19 @@ class AgenticWorkflowExecutor extends AutoToolExecutor {
     const nameMatch = content.match(/([a-zA-Z0-9-_]+)\s+(?:project|app|application)/i);
     if (nameMatch) {
       const projectName = nameMatch[1];
-      // Skip common words
-      if (!['a', 'an', 'the', 'new', 'full', 'stack', 'create', 'make', 'generate'].includes(projectName.toLowerCase())) {
+      // Skip common words and prepositions
+      if (!['a', 'an', 'the', 'new', 'full', 'stack', 'create', 'make', 'generate', 'basic', 'node', 'express', 'react', 'using', 'in'].includes(projectName.toLowerCase())) {
         console.log(`🎯 Extracted project name from name + project: ${projectName}`);
         return projectName;
       }
+    }
+
+    // Look for folder name at the end of the sentence
+    const endFolderMatch = content.match(/([a-zA-Z0-9-_]+)\s+folder\s*$/i);
+    if (endFolderMatch) {
+      const projectName = endFolderMatch[1];
+      console.log(`🎯 Extracted project name from end folder: ${projectName}`);
+      return projectName;
     }
 
     console.log(`❌ No project name extracted from: "${content}"`);
@@ -1032,6 +966,131 @@ Created automatically by OllamaGeek! 🚀`;
   }
 
   /**
+   * Get tool plan from Ollama using its intelligence
+   */
+  async _getToolPlanFromOllama(content, context) {
+    try {
+      const axios = require('axios');
+
+      // Create a prompt for Ollama to understand what tools are needed
+      const planningPrompt = `Analyze this request and determine what tools Continue should execute:
+
+Request: "${content}"
+
+Available tools:
+- create_file: Create new files with content
+- create_directory: Create new directories
+- edit_file: Modify existing files
+- delete_file: Remove files
+- run_terminal: Execute terminal commands
+- git_operation: Perform git operations
+- search_files: Search file content
+
+Respond with a JSON plan:
+{
+  "description": "Brief description of what needs to be done",
+  "tools": [
+    {
+      "tool": "tool_name",
+      "description": "What this tool should do",
+      "parameters": {
+        "param1": "value1"
+      }
+    }
+  ],
+  "context": "Additional context for Continue"
+}`;
+
+      const response = await axios.post('http://localhost:11434/api/generate', {
+        model: 'codellama:13b-instruct-q4_K_M',
+        prompt: planningPrompt,
+        stream: false,
+        options: {
+          temperature: 0.1,
+          top_p: 0.9
+        }
+      });
+
+      const planText = response.data.response;
+
+      try {
+        // Try to parse the JSON response
+        const plan = JSON.parse(planText);
+        return plan;
+      } catch (parseError) {
+        console.log('⚠️ Failed to parse Ollama response as JSON, using fallback');
+        return this._getFallbackToolPlan(content);
+      }
+
+    } catch (error) {
+      console.error('❌ Error getting tool plan from Ollama:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Get fallback tool plan when Ollama fails
+   */
+  _getFallbackToolPlan(content) {
+    const lowerContent = content.toLowerCase();
+
+    // Basic fallback logic
+    if (lowerContent.includes('arduino') || lowerContent.includes('led') || lowerContent.includes('flash')) {
+      return {
+        description: "Create Arduino project with LED blinking code",
+        tools: [
+          {
+            tool: "create_directory",
+            description: "Create project directory",
+            parameters: { path: "blinkGeek" }
+          },
+          {
+            tool: "create_file",
+            description: "Create Arduino sketch file",
+            parameters: { path: "blinkGeek/blink.ino", content: "// Arduino LED Blink Sketch\n\nvoid setup() {\n  pinMode(LED_BUILTIN, OUTPUT);\n}\n\nvoid loop() {\n  digitalWrite(LED_BUILTIN, HIGH);\n  delay(1000);\n  digitalWrite(LED_BUILTIN, LOW);\n  delay(1000);\n}" }
+          },
+          {
+            tool: "create_file",
+            description: "Create README file",
+            parameters: { path: "blinkGeek/README.md", content: "# BlinkGeek Arduino Project\n\nSimple LED blinking project for Arduino.\n\n## Setup\n1. Connect Arduino board\n2. Upload blink.ino\n3. Watch onboard LED blink!" }
+          }
+        ],
+        context: "This is an Arduino project that will blink the onboard LED"
+      };
+    }
+
+    // Default fallback
+    return {
+      description: "Basic file creation",
+      tools: [
+        {
+          tool: "create_directory",
+          description: "Create project directory",
+          parameters: { path: "project" }
+        }
+      ],
+      context: "Basic project setup"
+    };
+  }
+
+  /**
+   * Get basic tool suggestions when planning fails
+   */
+  _getBasicToolSuggestions(content) {
+    return {
+      description: "Basic tool suggestions",
+      tools: [
+        {
+          tool: "create_file",
+          description: "Create a file",
+          parameters: { path: "example.txt", content: "Example content" }
+        }
+      ],
+      context: "Basic file creation"
+    };
+  }
+
+  /**
    * Check if request is for generic file/folder creation
    */
   _isFileCreationRequest(content) {
@@ -1130,7 +1189,7 @@ Created automatically by OllamaGeek! 🚀`;
   _extractCommands(content) {
     // Simple command extraction - could be enhanced with AI
     const commands = [];
-    
+
     if (content.toLowerCase().includes('npm install')) {
       commands.push('npm install');
     }
@@ -1140,7 +1199,7 @@ Created automatically by OllamaGeek! 🚀`;
     if (content.toLowerCase().includes('npm start')) {
       commands.push('npm start');
     }
-    
+
     return commands.join(' && ');
   }
 
@@ -1205,7 +1264,7 @@ Created automatically by OllamaGeek! 🚀`;
    */
   _createAIAnalysisWorkflow(content) {
     const filePath = this._extractFilePath(content) || 'current file';
-    
+
     return {
       type: 'ai-code-analysis',
       description: `AI-powered code analysis for: ${filePath}`,
@@ -1225,7 +1284,7 @@ Created automatically by OllamaGeek! 🚀`;
   _createAIRefactoringWorkflow(content) {
     const filePath = this._extractFilePath(content) || 'current file';
     const refactoringType = this._extractRefactoringType(content) || 'quality';
-    
+
     return {
       type: 'ai-code-refactoring',
       description: `AI-powered code refactoring for: ${filePath}`,
@@ -1245,7 +1304,7 @@ Created automatically by OllamaGeek! 🚀`;
   _createAITestGenerationWorkflow(content) {
     const filePath = this._extractFilePath(content) || 'current file';
     const testFramework = this._extractTestFramework(content) || 'auto';
-    
+
     return {
       type: 'ai-test-generation',
       description: `AI-powered test generation for: ${filePath}`,
@@ -1264,7 +1323,7 @@ Created automatically by OllamaGeek! 🚀`;
    */
   _createAIDebuggingWorkflow(content) {
     const filePath = this._extractFilePath(content) || 'current file';
-    
+
     return {
       type: 'ai-debugging',
       description: `AI-powered debugging for: ${filePath}`,
@@ -1287,13 +1346,13 @@ Created automatically by OllamaGeek! 🚀`;
     if (fileMatch) {
       return fileMatch[1];
     }
-    
+
     // Look for common file patterns
     const patternMatch = content.match(/([a-zA-Z0-9_\-\.\/]+\.(?:js|jsx|ts|tsx|py|java|cpp|c|go|rs|php|rb|swift|kt|scala))/);
     if (patternMatch) {
       return patternMatch[1];
     }
-    
+
     return null;
   }
 
@@ -1302,14 +1361,14 @@ Created automatically by OllamaGeek! 🚀`;
    */
   _extractRefactoringType(content) {
     const lowerContent = content.toLowerCase();
-    
+
     if (lowerContent.includes('performance')) return 'performance';
     if (lowerContent.includes('readability')) return 'readability';
     if (lowerContent.includes('maintainability')) return 'maintainability';
     if (lowerContent.includes('security')) return 'security';
     if (lowerContent.includes('clean')) return 'clean';
     if (lowerContent.includes('modern')) return 'modern';
-    
+
     return 'quality';
   }
 
@@ -1318,76 +1377,18 @@ Created automatically by OllamaGeek! 🚀`;
    */
   _extractTestFramework(content) {
     const lowerContent = content.toLowerCase();
-    
+
     if (lowerContent.includes('jest')) return 'jest';
     if (lowerContent.includes('mocha')) return 'mocha';
     if (lowerContent.includes('pytest')) return 'pytest';
     if (lowerContent.includes('junit')) return 'junit';
     if (lowerContent.includes('gtest')) return 'gtest';
     if (lowerContent.includes('testing')) return 'testing';
-    
+
     return 'auto';
   }
 
-  /**
-   * Run AI code analysis
-   */
-  async _runAIAnalysis(params) {
-    try {
-      const { AICodeAnalyzer } = require('./aiCodeAnalyzer');
-      const aiAnalyzer = new AICodeAnalyzer();
-      
-      const result = await aiAnalyzer.analyzeCode(params.filePath, params.options);
-      return result;
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Run AI code refactoring
-   */
-  async _runAIRefactoring(params) {
-    try {
-      const { AICodeAnalyzer } = require('./aiCodeAnalyzer');
-      const aiAnalyzer = new AICodeAnalyzer();
-      
-      const result = await aiAnalyzer.refactorCode(params.filePath, params.refactoringType, params.options);
-      return result;
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Run AI test generation
-   */
-  async _runAITestGeneration(params) {
-    try {
-      const { AICodeAnalyzer } = require('./aiCodeAnalyzer');
-      const aiAnalyzer = new AICodeAnalyzer();
-      
-      const result = await aiAnalyzer.generateTests(params.filePath, params.testFramework, params.options);
-      return result;
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Run AI debugging
-   */
-  async _runAIDebugging(params) {
-    try {
-      const { AICodeAnalyzer } = require('./aiCodeAnalyzer');
-      const aiAnalyzer = new AICodeAnalyzer();
-      
-      const result = await aiAnalyzer.debugCode(params.filePath, params.errorContext, params.options);
-      return result;
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
+  // AI execution methods removed - this is now a planning-only class
 }
 
 module.exports = { AgenticWorkflowExecutor };

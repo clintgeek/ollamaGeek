@@ -11,18 +11,13 @@ const { ErrorHandler } = require('./middleware/errorHandler');
 const { SessionManager } = require('./services/sessionManager');
 const { SmartContextManager } = require('./services/smartContextManager');
 const { AgenticWorkflowExecutor } = require('./services/agenticWorkflowExecutor');
-const { SimpleToolAnalyzer } = require('./services/simpleToolAnalyzer');
 const { AICodeAnalyzer } = require('./services/aiCodeAnalyzer');
+const { EnhancedContextManager } = require('./services/enhancedContextManager');
 
-// Helper function to generate workflow summary
-function generateWorkflowSummary(workflowResults) {
-  const { workflow, steps, success } = workflowResults;
-
-  if (!success) {
-    return `Workflow '${workflow}' failed to execute`;
-  }
-
-  return `Workflow '${workflow}' completed successfully with ${steps} steps. Project created and ready to use!`;
+// Helper function to generate tool plan summary
+function generateToolPlanSummary(toolPlan) {
+  const { description, tools } = toolPlan;
+  return `${description} - ${tools.length} tools needed`;
 }
 
 const app = express();
@@ -34,8 +29,8 @@ const embeddingClassifier = new EmbeddingClassifier();
 const sessionManager = new SessionManager();
 const contextManager = new SmartContextManager();
 const agenticExecutor = new AgenticWorkflowExecutor();
-const toolAnalyzer = new SimpleToolAnalyzer();
 const aiCodeAnalyzer = new AICodeAnalyzer();
+const enhancedContextManager = new EnhancedContextManager();
 
 // Middleware
 app.use(helmet());
@@ -63,42 +58,7 @@ app.get('/api/sessions', (req, res) => {
   res.json(sessionManager.getStats());
 });
 
-// Tool execution endpoint
-app.post('/api/tools/execute', async (req, res, next) => {
-  try {
-    const { toolName, parameters, context } = req.body;
-
-    if (!toolName) {
-      return res.status(400).json({ error: 'Tool name is required' });
-    }
-
-    const result = await agenticExecutor.executeTool(toolName, parameters, context);
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Tool analysis endpoint
-app.post('/api/tools/analyze', async (req, res, next) => {
-  try {
-    const { content, taskType, complexity } = req.body;
-
-    if (!content) {
-      return res.status(400).json({ error: 'Content is required' });
-    }
-
-    const analysis = await toolAnalyzer.analyzeForTools(content, taskType, complexity);
-    const suggestions = toolAnalyzer.getToolSuggestions(content);
-
-    res.json({
-      analysis,
-      suggestions
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+// Tool execution endpoints removed - this is now a planning-only API
 
 // AI Code Analysis endpoint
 app.post('/api/ai/analyze', async (req, res, next) => {
@@ -222,73 +182,123 @@ app.delete('/api/ai/cache', (req, res) => {
   res.json(result);
 });
 
-// Available tools endpoint
-app.get('/api/tools', (req, res) => {
-  res.json({
-    availableTools: [
-      ...agenticExecutor.getAvailableTools(),
-      ...aiCodeAnalyzer.getAvailableTools()
-    ],
-    toolAnalyzer: {
-      description: 'AI-powered tool detection and suggestions'
-    },
-    agenticWorkflows: {
-      description: 'AI-powered workflow execution for complete projects',
-              supportedTypes: [
-          'react-node-fullstack',
-          'simple-node',
-          'express-backend',
-          'react-frontend',
-          'python-project',
-          'git-setup',
-          'package-installation',
-          'file-creation',
-          'command-execution',
-          'ai-code-analysis',
-          'ai-code-refactoring',
-          'ai-test-generation',
-          'ai-debugging'
-        ]
-    },
-    aiCapabilities: {
-      description: 'Advanced AI-powered code analysis, refactoring, testing, and debugging',
-      features: [
-        'Code Quality Analysis',
-        'Intelligent Refactoring',
-        'Test Generation',
-        'Debugging Assistance',
-        'Code Review',
-        'Documentation Generation',
-        'Performance Optimization'
-      ]
-    }
-  });
-});
+// Old tools endpoint removed - replaced with planning-only version below
 
-// Tool execution history endpoint
-app.get('/api/tools/history', (req, res) => {
-  res.json({
-    executionHistory: agenticExecutor.getExecutionHistory(),
-    totalExecutions: agenticExecutor.getExecutionHistory().length
-  });
-});
+// Tool execution history removed - this is now a planning-only API
 
   // Ollama API endpoints - these maintain complete compatibility
   app.post('/api/show', async (req, res, next) => {
   try {
     console.log('🔍 /api/show endpoint called');
+    console.log('📋 Request body:', JSON.stringify(req.body, null, 2));
 
     // Get model info from Ollama
     const axios = require('axios');
     const ollamaResponse = await axios.post('http://localhost:11434/api/show', req.body);
 
-    // Add OllamaGeek enhancement info
+    // Get available tools from our services
+    const availableTools = [
+      {
+        name: "create_file",
+        description: "Create new files with specified content",
+        parameters: {
+          path: "string - File path to create",
+          content: "string - File content",
+          language: "string - Programming language (optional)"
+        }
+      },
+      {
+        name: "create_directory",
+        description: "Create new directories",
+        parameters: {
+          path: "string - Directory path to create"
+        }
+      },
+      {
+        name: "edit_file",
+        description: "Modify existing files",
+        parameters: {
+          path: "string - File path to edit",
+          content: "string - New file content"
+        }
+      },
+      {
+        name: "delete_file",
+        description: "Remove files",
+        parameters: {
+          path: "string - File path to delete"
+        }
+      },
+      {
+        name: "run_terminal",
+        description: "Execute terminal commands",
+        parameters: {
+          command: "string - Command to execute",
+          cwd: "string - Working directory (optional)"
+        }
+      },
+      {
+        name: "git_operation",
+        description: "Perform git operations",
+        parameters: {
+          operation: "string - Git command (init, add, commit, etc.)",
+          path: "string - Repository path (optional)"
+        }
+      },
+      {
+        name: "search_files",
+        description: "Search file content",
+        parameters: {
+          query: "string - Search query",
+          path: "string - Directory to search (optional)"
+        }
+      }
+    ];
+
+    // Add OllamaGeek enhancement info with tool capabilities
+    // Note: Continue expects tools in Ollama's native format
     const enhancedResponse = {
       ...ollamaResponse.data,
       ollamageek_enhanced: true,
-      orchestration: 'OllamaGeek enhanced response'
+      orchestration: 'OllamaGeek enhanced response',
+      // Expose tools in Ollama's expected format
+      tools: availableTools.map(tool => ({
+        type: "function",
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: {
+            type: "object",
+            properties: Object.fromEntries(
+              Object.entries(tool.parameters).map(([key, value]) => [
+                key,
+                { type: "string", description: value }
+              ])
+            ),
+            required: Object.keys(tool.parameters)
+          }
+        }
+      })),
+      // Add tool capabilities to the existing capabilities
+      capabilities: {
+        ...ollamaResponse.data.capabilities,
+        tool_execution: true,
+        file_operations: true,
+        terminal_commands: true,
+        git_operations: true,
+        code_analysis: true,
+        project_generation: true,
+        function_calling: true,
+        tool_use: true
+      },
+      // Add tools to modelfile so Continue can see them
+      modelfile: (ollamaResponse.data.modelfile || '') + '\n\n# OllamaGeek Tools\n' + availableTools.map(tool =>
+        `TOOL ${tool.name} "${tool.description}"`
+      ).join('\n'),
+      system_prompt: "You are OllamaGeek, an intelligent AI assistant with access to powerful tools for file operations, terminal commands, git operations, and code analysis. You can execute tools directly to help users with their coding tasks."
     };
 
+    console.log(`🛠️ Exposed ${availableTools.length} tools to Continue`);
     res.json(enhancedResponse);
   } catch (error) {
     console.error('❌ Error in /api/show:', error.message);
@@ -332,50 +342,26 @@ app.post('/api/chat', async (req, res, next) => {
         // Analyze if tools are needed
     const content = req.body.prompt || (req.body.messages && req.body.messages.length > 0 ? req.body.messages[req.body.messages.length - 1].content : '');
 
-    // First, try agentic workflow execution (truly agentic!)
-    console.log(`🧠 Attempting agentic workflow execution...`);
-    const workflowResult = await agenticExecutor.executeWorkflow(req.body, context);
+    // Get tool plan from Ollama's intelligence
+    console.log(`🧠 Getting tool plan from Ollama...`);
+    const toolPlan = await agenticExecutor.planTools(req.body, context);
 
-    if (workflowResult) {
-      console.log(`🎯 Agentic Workflow Executed: ${workflowResult.workflow} (${workflowResult.steps} steps)`);
-      console.log(`✅ Workflow Success: ${workflowResult.success}`);
+    if (toolPlan && toolPlan.tools.length > 0) {
+      // Add tool plan to context for Continue to use
+      context.toolPlan = toolPlan;
+      console.log(`🎯 Tool plan generated: ${toolPlan.tools.length} tools needed`);
+      console.log(`📋 Plan description: ${toolPlan.description}`);
+      console.log(`🔧 Tools: ${toolPlan.tools.map(t => t.tool).join(', ')}`);
 
-      // Add workflow results to context
-      context.workflowResults = workflowResult;
-
-      // If workflow was successful, we don't need individual tool analysis
-      if (workflowResult.success) {
-        console.log(`🚀 Workflow completed successfully!`);
+      // Add tool plan to the user message so Continue knows what to do
+      if (req.body.messages && req.body.messages.length > 0) {
+        const lastMessage = req.body.messages[req.body.messages.length - 1];
+        if (lastMessage.role === 'user') {
+          lastMessage.content += `\n\n[TOOL PLAN: ${toolPlan.description}]\n\nContinue should execute these tools:\n${toolPlan.tools.map((t, i) => `${i + 1}. ${t.tool}: ${t.description}`).join('\n')}\n\nContext: ${toolPlan.context}`;
+        }
       }
     } else {
-      // Fallback to individual tool analysis
-      console.log(`🔄 No workflow detected, falling back to individual tools...`);
-      const toolAnalysis = await toolAnalyzer.analyzeForTools(
-        content,
-        analysis.taskType,
-        analysis.complexity
-      );
-
-      if (toolAnalysis.needsTools) {
-        console.log(`🛠️ Tools Detected: ${toolAnalysis.tools.map(t => t.name).join(', ')} (${toolAnalysis.method})`);
-        console.log(`💡 Tool Suggestions: ${toolAnalysis.tools.map(t => t.reasoning).join('; ')}`);
-
-        // AUTO-EXECUTE TOOLS! 🚀
-        console.log(`🚀 Auto-executing individual tools...`);
-        const toolResults = await agenticExecutor.autoExecuteTools(req.body, toolAnalysis, context);
-
-        // Log the results
-        toolResults.forEach(result => {
-          if (result.success) {
-            console.log(`✅ ${result.tool} executed successfully:`, result.result);
-          } else {
-            console.log(`❌ ${result.tool} failed:`, result.error);
-          }
-        });
-
-        // Add tool results to the context for the model
-        context.toolResults = toolResults;
-      }
+      console.log(`❌ No tool plan generated`);
     }
 
     // Check if planning is needed
@@ -394,18 +380,12 @@ app.post('/api/chat', async (req, res, next) => {
       stream: req.body.stream !== false // Default to true for Continue compatibility
     };
 
-    // If we executed a workflow, inject the results into the request
-    if (context.workflowResults && context.workflowResults.success) {
-      const workflowSummary = generateWorkflowSummary(context.workflowResults);
-
-      // Add workflow results to the last user message
-      if (ollamaRequest.messages && ollamaRequest.messages.length > 0) {
-        const lastMessage = ollamaRequest.messages[ollamaRequest.messages.length - 1];
-        if (lastMessage.role === 'user') {
-          lastMessage.content += `\n\n[WORKFLOW EXECUTED: ${workflowSummary}]`;
-        }
-      }
-    }
+    // Add model information to the request for context
+    ollamaRequest.ollamageek_context = {
+      selectedModel: recommendedModel,
+      toolPlanGenerated: context.toolPlan ? true : false,
+      timestamp: new Date().toISOString()
+    };
 
     // Clean the request to remove any potentially problematic fields
     const cleanRequest = {
@@ -429,6 +409,18 @@ app.post('/api/chat', async (req, res, next) => {
     console.log(`🎯 Recommended model:`, recommendedModel);
     console.log(`🧹 Cleaned request:`, JSON.stringify(cleanRequest, null, 2));
 
+        // Check if this is a tool execution request from Continue
+    if (req.body.tools && req.body.tools.length > 0) {
+      console.log(`🛠️ Continue sent tools: ${req.body.tools.map(t => t.function?.name || t.name).join(', ')}`);
+
+      // For now, let's not modify the tools in the request to Ollama
+      // as this might be causing the 400 error
+      console.log(`🔄 Continue tool execution mode - passing through to Ollama without modification`);
+
+      // We'll handle tool execution differently - by intercepting the response
+      // and executing tools when Ollama requests them
+    }
+
     // Check if streaming is requested
     const isStreaming = ollamaRequest.stream;
 
@@ -448,10 +440,15 @@ app.post('/api/chat', async (req, res, next) => {
 
                 // Intercept the stream to inject model information
         let firstChunk = true;
+        let messageBuffer = '';
+        let isMessageComplete = false;
+
         ollamaResponse.data.on('data', (chunk) => {
+          const chunkStr = chunk.toString();
+          messageBuffer += chunkStr;
+
           if (firstChunk) {
             // Inject model info into the first chunk
-            const chunkStr = chunk.toString();
             if (chunkStr.includes('"model"')) {
               // Replace the model name with our enhanced version
               const enhancedChunk = chunkStr.replace(
@@ -464,7 +461,22 @@ app.post('/api/chat', async (req, res, next) => {
             }
             firstChunk = false;
           } else {
-            res.write(chunk);
+            // Check if this chunk completes a message
+            if (chunkStr.includes('"done":true')) {
+              isMessageComplete = true;
+            }
+
+            // If message is complete, inject model note
+            if (isMessageComplete && chunkStr.includes('"content"')) {
+              const enhancedChunk = chunkStr.replace(
+                /"content":"([^"]*)"/,
+                `"content":"$1\\n\\n---\\n🤖 **OllamaGeek AI Assistant**\\n🎯 **Model Used:** ${recommendedModel}\\n⏰ **Timestamp:** ${new Date().toLocaleString()}\\n---"`
+              );
+              res.write(enhancedChunk);
+              isMessageComplete = false;
+            } else {
+              res.write(chunk);
+            }
           }
         });
 
@@ -567,6 +579,403 @@ app.post('/api/orchestrate', async (req, res, next) => {
     const result = await orchestrator.handleOrchestration(req.body);
     res.json(result);
   } catch (error) {
+    next(error);
+  }
+});
+
+// Tool discovery endpoint for Continue
+app.get('/api/tools', async (req, res) => {
+  try {
+    console.log('🔍 /api/tools endpoint called - Continue discovering tools');
+
+    const availableTools = [
+      {
+        name: "create_file",
+        description: "Create new files with specified content",
+        parameters: {
+          path: "string - File path to create",
+          content: "string - File content",
+          language: "string - Programming language (optional)"
+        }
+      },
+      {
+        name: "create_directory",
+        description: "Create new directories",
+        parameters: {
+          path: "string - Directory path to create"
+        }
+      },
+      {
+        name: "edit_file",
+        description: "Modify existing files",
+        parameters: {
+          path: "string - File path to edit",
+          content: "string - New file content"
+        }
+      },
+      {
+        name: "delete_file",
+        description: "Remove files",
+        parameters: {
+          path: "string - File path to delete"
+        }
+      },
+      {
+        name: "run_terminal",
+        description: "Execute terminal commands",
+        parameters: {
+          command: "string - Command to execute",
+          cwd: "string - Working directory (optional)"
+        }
+      },
+      {
+        name: "git_operation",
+        description: "Perform git operations",
+        parameters: {
+          operation: "string - Git command (init, add, commit, etc.)",
+          path: "string - Repository path (optional)"
+        }
+      },
+      {
+        name: "search_files",
+        description: "Search file content",
+        parameters: {
+          query: "string - Search query",
+          path: "string - Directory to search (optional)"
+        }
+      }
+    ];
+
+    res.json({
+      tools: availableTools,
+      capabilities: {
+        tool_planning: true,
+        file_operations: true,
+        terminal_commands: true,
+        git_operations: true,
+        code_analysis: true,
+        project_generation: true
+      },
+      model: "OllamaGeek Orchestrator",
+      version: "1.0.0",
+      description: "Intelligent AI assistant with powerful tool planning capabilities"
+    });
+  } catch (error) {
+    console.error('❌ Error in /api/tools:', error.message);
+    res.status(500).json({ error: 'Failed to get tools' });
+  }
+});
+
+
+
+// Enhanced context-aware planning endpoint
+app.post('/api/plan/enhanced', async (req, res, next) => {
+  try {
+    // Session management: Create or get session ID
+    const userAgent = req.get('User-Agent') || 'unknown';
+    const sessionId = sessionManager.getSessionId(req.body, userAgent);
+    const sessionHistory = sessionManager.getSessionHistory(sessionId);
+
+    console.log(`🆔 Enhanced Planning Session: ${sessionId} | History: ${sessionHistory.length} messages`);
+
+    // Use embedding-based classification for intelligent model selection
+    const analysis = await embeddingClassifier.classifyRequest(req.body);
+    const recommendedModel = analysis.recommendedModel;
+
+    console.log(`🧠 Enhanced Planning Model: "${req.body.model}" -> "${recommendedModel}"`);
+    console.log(`📊 Analysis: ${analysis.taskType} | ${analysis.complexity} | ${analysis.language}`);
+
+    // Get context recommendations based on the request
+    console.log(`🧠 Getting context recommendations...`);
+    const contextRequest = await enhancedContextManager.getContextRecommendations(req.body.messages?.[0]?.content || req.body.prompt || '');
+
+    // Request context from PluginGeek (simulated for now)
+    console.log(`🧠 Requesting context from PluginGeek...`);
+    const contextResponse = await enhancedContextManager.requestContext(contextRequest);
+
+    // Analyze context for AI planning
+    console.log(`🧠 Analyzing context for AI planning...`);
+    const planningContext = await enhancedContextManager.analyzeContextForPlanning(
+      req.body.messages?.[0]?.content || req.body.prompt || '',
+      contextResponse
+    );
+
+    // Get tool plan from Ollama's intelligence with enhanced context
+    console.log(`🧠 Generating enhanced tool plan...`);
+    const toolPlan = await agenticExecutor.planTools(req.body, planningContext);
+
+    if (toolPlan && toolPlan.tools.length > 0) {
+      console.log(`🎯 Enhanced tool plan generated: ${toolPlan.tools.length} tools needed`);
+      console.log(`📋 Plan description: ${toolPlan.description}`);
+
+      // Update feature tracking if this is a feature-related request
+      if (planningContext.feature.currentFeature) {
+        enhancedContextManager.updateFeatureTracking(
+          planningContext.feature.currentFeature,
+          'planning',
+          planningContext.relevantFiles.map(f => f.path)
+        );
+      }
+
+      // Return enhanced plan with context
+      res.json({
+        success: true,
+        plan: {
+          description: toolPlan.description,
+          tools: toolPlan.tools.map(tool => ({
+            name: tool.tool,
+            description: tool.description,
+            parameters: tool.parameters || {},
+            context: tool.context || ''
+          })),
+          context: {
+            workspace: planningContext.workspace,
+            feature: planningContext.feature,
+            rules: planningContext.rules,
+            summary: planningContext.contextSummary,
+            constraints: planningContext.constraints,
+            recommendations: planningContext.analysis.recommendations
+          },
+          model: recommendedModel,
+          sessionId: sessionId,
+          contextId: contextResponse.contextId
+        }
+      });
+    } else {
+      // No tools needed - return enhanced response plan
+      res.json({
+        success: true,
+        plan: {
+          description: "No tools required - direct response needed",
+          tools: [],
+          context: {
+            workspace: planningContext.workspace,
+            feature: planningContext.feature,
+            rules: planningContext.rules,
+            summary: planningContext.contextSummary
+          },
+          model: recommendedModel,
+          sessionId: sessionId,
+          contextId: contextResponse.contextId
+        }
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error in enhanced planning:', error.message);
+    next(error);
+  }
+});
+
+// Original planning endpoint - returns tool execution plan without executing
+app.post('/api/plan', async (req, res, next) => {
+  try {
+    // Session management: Create or get session ID
+    const userAgent = req.get('User-Agent') || 'unknown';
+    const sessionId = sessionManager.getSessionId(req.body, userAgent);
+    const sessionHistory = sessionManager.getSessionHistory(sessionId);
+
+    console.log(`🆔 Planning Session: ${sessionId} | History: ${sessionHistory.length} messages`);
+
+    // Use embedding-based classification for intelligent model selection
+    const analysis = await embeddingClassifier.classifyRequest(req.body);
+    const recommendedModel = analysis.recommendedModel;
+
+    console.log(`🧠 Planning Model: "${req.body.model}" -> "${recommendedModel}"`);
+    console.log(`📊 Analysis: ${analysis.taskType} | ${analysis.complexity} | ${analysis.language}`);
+
+    // Get smart context for the request
+    const context = await contextManager.getSmartContext(req.body, analysis.taskType, analysis.complexity);
+    if (context.files.length > 0 || context.gitStatus || context.reasoning) {
+      console.log(`📁 Planning Context: ${contextManager.formatContext(context)}`);
+    }
+
+    // Get tool plan from Ollama's intelligence
+    console.log(`🧠 Generating tool plan...`);
+    const toolPlan = await agenticExecutor.planTools(req.body, context);
+
+    if (toolPlan && toolPlan.tools.length > 0) {
+      console.log(`🎯 Tool plan generated: ${toolPlan.tools.length} tools needed`);
+      console.log(`📋 Plan description: ${toolPlan.description}`);
+
+      // Return structured plan for VS Code extension to execute
+      res.json({
+        success: true,
+        plan: {
+          description: toolPlan.description,
+          tools: toolPlan.tools.map(tool => ({
+            name: tool.tool,
+            description: tool.description,
+            parameters: tool.parameters || {},
+            context: tool.context || ''
+          })),
+          context: toolPlan.context,
+          model: recommendedModel,
+          sessionId: sessionId
+        }
+      });
+    } else {
+      // No tools needed - return simple response plan
+      res.json({
+        success: true,
+        plan: {
+          description: "No tools required - direct response needed",
+          tools: [],
+          context: context,
+          model: recommendedModel,
+          sessionId: sessionId
+        }
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error in /api/plan:', error.message);
+    next(error);
+  }
+});
+
+// Unified chat endpoint - handles classification and planning internally
+app.post('/api/chat/unified', async (req, res, next) => {
+  try {
+    const { prompt, context } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    console.log(`💬 Chat endpoint called with: "${prompt}"`);
+
+    // Fast pattern-based classification (no AI call needed)
+    console.log(`🧠 Using pattern-based classification for: "${prompt}"`);
+
+    let actionType = 'execution_simple'; // Default
+
+    // Check for simple chat patterns
+    if (/^(hello|hi|hey|greetings|good morning|good afternoon|good evening|how are you|how's it going|what's up|sup|hey there|good day)/i.test(prompt)) {
+      actionType = 'simple_chat';
+    } else if (/^(what is|what's|how much is|calculate|compute|solve).*[0-9+\-*/()\s.]+/i.test(prompt) ||
+               /^[0-9+\-*/()\s.]+=?\s*$/i.test(prompt) ||
+               /what is.*[0-9+\-*/()\s.]+/i.test(prompt)) {
+      actionType = 'simple_chat';
+    } else if (/^(help me plan|design a system|how should i approach|plan for|design for)/i.test(prompt)) {
+      actionType = 'planning_task';
+    } else if (/^(create|build|make|generate|add|implement|set up|configure)/i.test(prompt)) {
+      actionType = 'execution_simple';
+    } else if (/^(refactor|restructure|redesign|migrate|upgrade|rewrite)/i.test(prompt)) {
+      actionType = 'execution_complex';
+    }
+
+    console.log(`🎬 Action Type Determined: ${actionType}`);
+
+    // Handle different action types
+    switch (actionType) {
+      case 'simple_chat':
+        // Handle simple chat directly
+        let directResponse = '';
+
+        // Math questions
+        if (/^(what is|what's|how much is|calculate|compute|solve).*[0-9+\-*/()\s.]+/i.test(prompt) ||
+            /^[0-9+\-*/()\s.]+=?\s*$/i.test(prompt) ||
+            /what is.*[0-9+\-*/()\s.]+/i.test(prompt)) {
+          try {
+            let mathExpr = prompt.replace(/^(what is|what's|how much is|calculate|compute|solve)\s+/i, '').replace(/[?]?\s*$/i, '').trim();
+            mathExpr = mathExpr
+              .replace(/\bplus\b/gi, '+')
+              .replace(/\bminus\b/gi, '-')
+              .replace(/\btimes\b/gi, '*')
+              .replace(/\bdivided by\b/gi, '/');
+
+            if (/^[0-9+\-*/()\s*()\s.]+$/.test(mathExpr)) {
+              const result = eval(mathExpr);
+              directResponse = `${mathExpr} = ${result}`;
+            }
+          } catch (error) {
+            directResponse = "I couldn't calculate that math expression safely.";
+          }
+        }
+
+        // Greetings
+        if (/^(hello|hi|hey|greetings|good morning|good afternoon|good evening|how are you|how's it going|what's up|sup|hey there|good day)/i.test(prompt)) {
+          const greetings = [
+            "Hello! How can I help you today?",
+            "Hi there! What would you like to work on?",
+            "Hey! I'm ready to assist with your development tasks.",
+            "Good day! What can I help you build or analyze today?",
+            "Hi! I'm your AI development assistant. What's on your mind?"
+          ];
+          directResponse = greetings[Math.floor(Math.random() * greetings.length)];
+        }
+
+        // If no direct response found, use a default response
+        if (!directResponse) {
+          directResponse = "I'm here to help! What would you like to work on?";
+        }
+
+        return res.json({
+          type: 'simple_chat',
+          message: directResponse,
+          tools: [],
+          requiresApproval: false,
+          modelUsed: 'pattern-based',
+          actionType: actionType
+        });
+
+      case 'planning_task':
+        // Generate simple plan response
+        return res.json({
+          type: 'planning_task',
+          message: `I'll help you plan: ${prompt}. This is a planning task that would benefit from a detailed plan and .md file.`,
+          tools: [],
+          requiresApproval: false,
+          modelUsed: 'pattern-based',
+          actionType: actionType,
+          plan: `Planning task: ${prompt}`
+        });
+
+      case 'execution_simple':
+      case 'execution_complex':
+        // Use full planning for execution tasks
+        console.log(`🔧 Execution task detected, using full planning...`);
+
+        // Get context recommendations
+        const contextRequest = await enhancedContextManager.getContextRecommendations(prompt);
+        const contextResponse = await enhancedContextManager.requestContext(contextRequest);
+        const planningContext = await enhancedContextManager.analyzeContextForPlanning(prompt, contextResponse);
+
+        // Generate tool plan
+        const toolPlan = await agenticExecutor.planTools({ prompt }, planningContext);
+
+        return res.json({
+          type: 'execution_task',
+          message: toolPlan.description || `I'll help you with: ${prompt}`,
+          tools: toolPlan.tools.map(tool => ({
+            name: tool.tool,
+            description: tool.description,
+            parameters: tool.parameters || {},
+            context: tool.context || ''
+          })),
+          requiresApproval: actionType === 'execution_complex',
+          modelUsed: 'pattern-based',
+          actionType: actionType,
+          context: {
+            workspace: planningContext.workspace,
+            feature: planningContext.feature,
+            rules: planningContext.rules,
+            summary: planningContext.contextSummary
+          }
+        });
+
+      default:
+        return res.json({
+          type: 'execution_task',
+          message: `I'll help you with: ${prompt}`,
+          tools: [],
+          requiresApproval: false,
+          modelUsed: 'pattern-based',
+          actionType: 'execution_simple'
+        });
+    }
+
+  } catch (error) {
+    console.error('❌ Error in /api/chat:', error.message);
     next(error);
   }
 });

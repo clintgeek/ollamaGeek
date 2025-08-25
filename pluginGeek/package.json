@@ -1,0 +1,79 @@
+{
+  "name": "plugin-geek",
+  "displayName": "PluginGeek - OllamaGeek Integration",
+  "description": "VS Code extension for OllamaGeek AI-powered development",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "pluginGeek.startChat",
+        "title": "PluginGeek: Start AI Chat",
+        "category": "PluginGeek"
+      },
+      {
+        "command": "pluginGeek.planFeature",
+        "title": "PluginGeek: Plan Feature",
+        "category": "PluginGeek"
+      },
+      {
+        "command": "pluginGeek.analyzeContext",
+        "title": "PluginGeek: Analyze Context",
+        "category": "PluginGeek"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "pluginGeek",
+          "title": "PluginGeek",
+          "icon": "$(lightbulb)"
+        }
+      ]
+    },
+    "views": {
+      "pluginGeek": [
+        {
+          "id": "pluginGeekChat",
+          "name": "AI Chat",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "PluginGeek",
+      "properties": {
+        "pluginGeek.ollamaGeekUrl": {
+          "type": "string",
+          "default": "http://localhost:3003",
+          "description": "URL of OllamaGeek server"
+        },
+        "pluginGeek.enableContextAnalysis": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable intelligent context analysis"
+        },
+        "pluginGeek.contextUpdateInterval": {
+          "type": "number",
+          "default": 5000,
+          "description": "Context update interval in milliseconds"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}

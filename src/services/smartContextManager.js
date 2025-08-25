@@ -11,7 +11,11 @@ class SmartContextManager {
       filePatterns: [
         /`([^`]+\.(js|jsx|ts|tsx|py|java|cpp|c|go|rs|php|rb))`/g,
         /"([^"]+\.(js|jsx|ts|tsx|py|java|cpp|c|go|rs|php|rb))"/g,
-        /'([^']+\.(js|jsx|ts|tsx|py|java|cpp|c|go|rs|php|rb))'/g
+        /'([^']+\.(js|jsx|ts|tsx|py|java|cpp|c|go|rs|php|rb))'/g,
+        // Enhanced patterns for better context understanding
+        /(?:analyze|refactor|test|debug|review|optimize)\s+(?:the\s+)?(?:file\s+)?["']?([^"'\s]+\.(?:js|jsx|ts|tsx|py|java|cpp|c|go|rs|php|rb))["']?/gi,
+        /(?:in|to|from|with)\s+["']?([^"'\s]+\.(?:js|jsx|ts|tsx|py|java|cpp|c|go|rs|php|rb))["']?/gi,
+        /(?:create|edit|modify|update)\s+(?:a\s+)?(?:file\s+)?(?:called\s+)?["']?([^"'\s]+\.(?:js|jsx|ts|tsx|py|java|cpp|c|go|rs|php|rb))["']?/gi
       ],
 
       // Common coding keywords that suggest file needs
@@ -138,10 +142,25 @@ class SmartContextManager {
   async _getProjectStructureFast() {
     try {
       const files = await fs.readdir('.');
-      return files
+      const relevantFiles = files
         .filter(file => file.endsWith('.js') || file.endsWith('.jsx') || file.endsWith('.ts') || file.endsWith('.tsx'))
-        .slice(0, 2) // Only first 2 for speed
+        .slice(0, 5) // Increased limit for better context
         .map(file => ({ path: file, method: 'project_structure' }));
+
+      // Also check parent directory for broader context
+      try {
+        const parentFiles = await fs.readdir('..');
+        const parentRelevantFiles = parentFiles
+          .filter(file => file.endsWith('.js') || file.endsWith('.jsx') || file.endsWith('.ts') || file.endsWith('.tsx'))
+          .slice(0, 3)
+          .map(file => ({ path: `../${file}`, method: 'parent_project_structure' }));
+
+        relevantFiles.push(...parentRelevantFiles);
+      } catch {
+        // Parent directory access might fail, that's okay
+      }
+
+      return relevantFiles;
     } catch {
       return [];
     }

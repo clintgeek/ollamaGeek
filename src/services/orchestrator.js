@@ -1,17 +1,15 @@
 const { ModelSelector } = require('./modelSelector');
 const { SmartContextManager } = require('./smartContextManager');
-const { ToolManager } = require('./toolManager');
+// ToolManager removed - this is now a planning-only orchestrator
 const { OllamaClient } = require('./ollamaClient');
-const { ResponseProcessor } = require('./responseProcessor');
 const { Logger } = require('../utils/logger');
 
 class OllamaOrchestrator {
   constructor() {
     this.modelSelector = new ModelSelector();
     this.contextManager = new SmartContextManager();
-    this.toolManager = new ToolManager();
+    // this.toolManager = new ToolManager(); // Removed - planning-only
     this.ollamaClient = new OllamaClient();
-    this.responseProcessor = new ResponseProcessor();
     this.logger = new Logger();
 
     this.conversationSessions = new Map();
@@ -37,12 +35,7 @@ class OllamaOrchestrator {
         selectedModel
       );
 
-      // Check if tool calling is needed
-      const toolCalls = await this.toolManager.analyzeForTools(enhancedRequest);
-
-      if (toolCalls.length > 0) {
-        return await this._handleToolExecution(enhancedRequest, toolCalls, selectedModel);
-      }
+      // Tool execution removed - this is now a planning-only orchestrator
 
       // Forward to Ollama with enhanced context
       const ollamaResponse = await this.ollamaClient.generate({
@@ -93,9 +86,7 @@ class OllamaOrchestrator {
       // Analyze for multi-step planning
       const planningResult = await this._analyzeForPlanning(enhancedRequest);
 
-      if (planningResult.needsPlanning) {
-        return await this._executeMultiStepPlan(enhancedRequest, planningResult, selectedModel);
-      }
+      // Multi-step planning removed - this is now a planning-only orchestrator
 
       // Forward to Ollama
       const ollamaResponse = await this.ollamaClient.chat({
@@ -412,59 +403,7 @@ class OllamaOrchestrator {
     };
   }
 
-  /**
-   * Execute multi-step planning
-   */
-  async _executeMultiStepPlan(requestBody, planningResult, selectedModel) {
-    // This would implement a sophisticated planning system
-    // For now, we'll enhance the prompt and let the model handle it
-    const enhancedPrompt = `Please provide a detailed, step-by-step response to the following request. Break it down into clear, actionable steps:
-
-${this._extractContent(requestBody)}
-
-Please structure your response with:
-1. Clear step numbering
-2. Specific actions for each step
-3. Expected outcomes
-4. Any considerations or warnings`;
-
-    const enhancedRequest = {
-      ...requestBody,
-      prompt: enhancedPrompt
-    };
-
-    return await this.ollamaClient.generate({
-      ...enhancedRequest,
-      model: selectedModel
-    });
-  }
-
-  /**
-   * Handle tool execution
-   */
-  async _handleToolExecution(requestBody, toolCalls, selectedModel) {
-    // This would implement tool calling functionality
-    // For now, we'll enhance the prompt to include tool usage guidance
-    const toolGuidance = `Please use appropriate tools and functions to complete this task. Consider the following available tools:
-
-${toolCalls.map(tool => `- ${tool.name}: ${tool.description}`).join('\n')}
-
-Your response should include:
-1. Tool selection reasoning
-2. Tool usage with proper parameters
-3. Results interpretation
-4. Next steps based on results`;
-
-    const enhancedRequest = {
-      ...requestBody,
-      prompt: `${requestBody.prompt}\n\n${toolGuidance}`
-    };
-
-    return await this.ollamaClient.generate({
-      ...enhancedRequest,
-      model: selectedModel
-    });
-  }
+  // Execution methods removed - this is now a planning-only orchestrator
 
   /**
    * Get or create session ID
@@ -579,7 +518,7 @@ Your response should include:
       contentAnalysis: await this._analyzeContent(data),
       recommendedModel: await this.modelSelector.recommendModel(data),
       contextOptimization: await this.contextManager.getOptimizationSuggestions(data),
-      toolRecommendations: await this.toolManager.getToolRecommendations(data)
+              toolRecommendations: [] // Tool recommendations removed - planning-only
     };
 
     return analysis;
