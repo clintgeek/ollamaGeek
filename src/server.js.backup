@@ -15,30 +15,11 @@ const { AICodeAnalyzer } = require('./services/aiCodeAnalyzer');
 const { EnhancedContextManager } = require('./services/enhancedContextManager');
 const IntentRecognizer = require('./services/intentRecognizer');
 const ApproachMapper = require('./services/approachMapper');
-const AIToolGenerator = require('./services/aiToolGenerator');
 
 // Helper function to generate tool plan summary
 function generateToolPlanSummary(toolPlan) {
   const { description, tools } = toolPlan;
   return `${description} - ${tools.length} tools needed`;
-}
-
-// Helper function to extract target path from prompt
-function extractTargetPathFromPrompt(prompt) {
-  const patterns = [
-    /(?:in\s+(?:a\s+)?(?:folder\s+named\s+|directory\s+named\s+|folder\s+called\s+|directory\s+called\s+))([a-zA-Z0-9._-]+)/i,
-    /(?:in\s+(?:a\s+)?(?:folder\s+|directory\s+))([a-zA-Z0-9._-]+)/i,
-    /(?:folder\s+named\s+|directory\s+named\s+|folder\s+called\s+|directory\s+called\s+)([a-zA-Z0-9._-]+)/i,
-    /(?:in\s+)([a-zA-Z0-9._-]+)/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = prompt.match(pattern);
-    if (match) {
-      return match[1];
-    }
-  }
-  return null;
 }
 
 const app = express();
@@ -54,7 +35,6 @@ const aiCodeAnalyzer = new AICodeAnalyzer();
 const enhancedContextManager = new EnhancedContextManager();
 const intentRecognizer = new IntentRecognizer();
 const approachMapper = new ApproachMapper();
-const aiToolGenerator = new AIToolGenerator();
 
 // Middleware
 app.use(helmet());
@@ -867,120 +847,174 @@ app.post('/api/chat/unified', async (req, res, next) => {
 
     console.log(`💬 Chat endpoint called with: "${prompt}"`);
 
-         // Use intelligent AI-native intent recognition system
-     console.log(`🧠 Using AI-native intent recognition for: "${prompt}"`);
+    // Use intelligent intent recognition system
+    console.log(`🧠 Using intelligent intent recognition for: "${prompt}"`);
 
-     try {
-       // Recognize user intent using AI-powered semantic analysis
-       const intentResult = await intentRecognizer.recognizeIntent(prompt, context);
-       console.log(`🎯 Intent Recognition Result:`, intentResult);
+    try {
+      // Recognize user intent using multiple approaches
+      const intentResult = await intentRecognizer.recognizeIntent(prompt, context);
+      console.log(`🎯 Intent Recognition Result:`, intentResult);
 
-       // Map intent to specific approach using AI reasoning
-       const mappedApproach = await approachMapper.mapIntentToApproach(intentResult, context);
-       console.log(`🗺️ Mapped Approach:`, mappedApproach);
+      // Map intent to specific approach and action type
+      const mappedApproach = approachMapper.mapIntentToApproach(intentResult);
+      console.log(`🗺️ Mapped Approach:`, mappedApproach);
 
-       // Generate appropriate response based on AI-determined approach
-       const response = approachMapper.generateResponse(prompt, intentResult, mappedApproach);
+      // Validate approach based on context
+      const validatedApproach = approachMapper.validateApproach(mappedApproach, context);
+      console.log(`✅ Validated Approach:`, validatedApproach);
 
-       // If it's a simple chat, return immediately
-       if (response.type === 'simple_chat') {
-         return res.json(response);
-       }
+      // Generate appropriate response based on approach
+      const response = approachMapper.generateResponse(prompt, intentResult, validatedApproach);
+      
+      // If it's a simple chat, return immediately
+      if (response.type === 'simple_chat') {
+        return res.json(response);
+      }
 
-       // For execution tasks, continue with AI-powered tool generation
-       const actionType = mappedApproach.actionType;
-       console.log(`🎬 Action Type Determined: ${actionType}`);
+      // For execution tasks, continue with planning
+      const actionType = validatedApproach.actionType;
+      console.log(`🎬 Action Type Determined: ${actionType}`);
 
-           // Handle execution tasks that need planning
-       if (actionType === 'execution_simple') {
-         console.log(`🔧 Simple execution task detected, using AI-powered tool generation...`);
+    // Handle different action types
+    switch (actionType) {
+      // Simple chat is now handled by the approach mapper above
+      // case 'simple_chat':
+        // All simple chat logic moved to approach mapper - this case is no longer used
+        let directResponse = '';
 
-         // Use AI Tool Generator for intelligent tool creation
-         const tools = await aiToolGenerator.generateToolsForIntent(prompt, intentResult, context);
+        // Math questions
+        if (/^(what is|what's|how much is|calculate|compute|solve).*[0-9+\-*/()\s.]+/i.test(prompt) ||
+            /^[0-9+\-*/()\s.]+=?\s*$/i.test(prompt) ||
+            /what is.*[0-9+\-*/()\s.]+/i.test(prompt) ||
+            /calculate.*[0-9+\-*/()\s.]+/i.test(prompt) ||
+            /compute.*[0-9+\-*/()\s.]+/i.test(prompt)) {
+          try {
+            let mathExpr = prompt.replace(/^(what is|what's|how much is|calculate|compute|solve)\s+/i, '').replace(/[?]?\s*$/i, '').trim();
+            mathExpr = mathExpr
+              .replace(/\bplus\b/gi, '+')
+              .replace(/\bminus\b/gi, '-')
+              .replace(/\btimes\b/gi, '*')
+              .replace(/\bdivided by\b/gi, '/')
+              .replace(/\band\b/gi, '+');
 
-         return res.json({
-           type: 'execution_task',
-           message: `I'll execute this task for you: ${prompt}`,
-           tools: tools,
-           requiresApproval: false,
-           modelUsed: 'ai_intent_recognition',
-           actionType: 'execution_simple',
-           context: {
-             intent: intentResult.intent,
-             complexity: intentResult.complexity,
-             confidence: intentResult.confidence
-           }
-         });
+            if (/^[0-9+\-*/()\s*()\s.]+$/.test(mathExpr)) {
+              const result = eval(mathExpr);
+              directResponse = `${mathExpr} = ${result}`;
+            } else {
+              // Try to extract just the numbers and operators
+              const numbers = prompt.match(/[0-9]+/g);
+              const operators = prompt.match(/[\+\-\*\/]/g);
+              if (numbers && numbers.length >= 2 && operators && operators.length >= 1) {
+                const expr = numbers.join(operators[0]);
+                const result = eval(expr);
+                directResponse = `${expr} = ${result}`;
+              }
+            }
+          } catch (error) {
+            directResponse = "I couldn't calculate that math expression safely.";
+          }
+        }
 
-       } else if (actionType === 'execution_complex') {
-         console.log(`🔧 Complex execution task detected, using AI planning...`);
+        // Greetings
+        if (/^(hello|hi|hey|greetings|good morning|good afternoon|good evening|how are you|how's it going|what's up|sup|hey there|good day)/i.test(prompt)) {
+          const greetings = [
+            "Hello! How can I help you today?",
+            "Hi there! What would you like to work on?",
+            "Hey! I'm ready to assist with your development tasks.",
+            "Good day! What can I help you build or analyze today?",
+            "Hi! I'm your AI development assistant. What's on your mind?"
+          ];
+          directResponse = greetings[Math.floor(Math.random() * greetings.length)];
+        }
 
-         // Use Smart Workspace Context Manager for intelligent context awareness
-         const SmartWorkspaceContextManager = require('./services/smartWorkspaceContextManager');
-         const smartContextManager = new SmartWorkspaceContextManager();
+        // General questions
+        if (/^(how tall|how big|how long|how wide|how heavy|how much does|how many|how old|what color|what time|what day|what year)/i.test(prompt)) {
+          const responses = [
+            "I'm an AI assistant, so I don't have physical characteristics like height or weight. I'm here to help you with coding, development, and technical tasks!",
+            "That's an interesting question, but I'm a development-focused AI assistant. I can help you with programming, code analysis, and building applications instead.",
+            "I'm a virtual assistant designed for development work, so I don't have physical attributes. How about we work on some code or development tasks instead?"
+          ];
+          directResponse = responses[Math.floor(Math.random() * responses.length)];
+        }
 
-         // Extract target path from prompt for context analysis
-         const targetPath = extractTargetPathFromPrompt(prompt);
-         console.log(`🔍 Analyzing workspace context for target: ${targetPath}`);
+        // File content updates (like "put it in yes.txt")
+        if (prompt.includes('put') && prompt.includes('in') && /\.(txt|js|py|md|json|html|css)$/i.test(prompt)) {
+          // This should be an execution task, not simple chat
+          console.log(`🔧 File content update detected, redirecting to execution`);
+          actionType = 'execution_simple';
+          // Break out of simple_chat case to handle as execution
+          break;
+        }
 
-         // Get intelligent workspace context
-         const workspaceContext = await smartContextManager.analyzeWorkspaceContext(targetPath);
-         console.log(`🔍 Workspace context analyzed:`, workspaceContext);
+        // If no direct response found, use a default response
+        if (!directResponse) {
+          directResponse = "I'm here to help! What would you like to work on?";
+        }
 
-         // Get context recommendations
-         const contextRequest = await enhancedContextManager.getContextRecommendations(prompt);
-         const contextResponse = await enhancedContextManager.requestContext(contextRequest);
-         const planningContext = await enhancedContextManager.analyzeContextForPlanning(prompt, contextResponse);
+        return res.json({
+          type: 'simple_chat',
+          message: directResponse,
+          tools: [],
+          requiresApproval: false,
+          modelUsed: classificationResult ? `${classificationResult.recommendedModel} (AI classification)` : 'pattern-based (fallback)',
+          actionType: actionType
+        });
 
-         // Enhance planning context with smart workspace analysis
-         const enhancedPlanningContext = {
-           ...planningContext,
-           workspace: workspaceContext.workspace,
-           target: workspaceContext.target,
-           patterns: workspaceContext.patterns,
-           conflicts: workspaceContext.conflicts,
-           recommendations: workspaceContext.recommendations
-         };
+      case 'planning_task':
+        // Generate simple plan response
+        return res.json({
+          type: 'planning_task',
+          message: `I'll help you plan: ${prompt}. This is a planning task that would benefit from a detailed plan and .md file.`,
+          tools: [],
+          requiresApproval: false,
+          modelUsed: classificationResult ? `${classificationResult.recommendedModel} (AI classification)` : 'pattern-based (fallback)',
+          actionType: actionType,
+          plan: `Planning task: ${prompt}`
+        });
 
-         // Generate tool plan with enhanced context
-         const toolPlan = await agenticExecutor.planTools({ prompt }, enhancedPlanningContext);
+      case 'execution_simple':
+      case 'execution_complex':
+        // Use full planning for execution tasks
+        console.log(`🔧 Execution task detected, using full planning...`);
 
-         return res.json({
-           type: 'execution_task',
-           message: toolPlan.description || `I'll help you with: ${prompt}`,
-           tools: toolPlan.tools.map(tool => ({
-             name: tool.tool,
-             description: tool.description,
-             parameters: tool.parameters || {},
-             context: tool.context || ''
-           })),
-           requiresApproval: true,
-           modelUsed: 'ai_intent_recognition',
-           actionType: actionType,
-           context: {
-             workspace: planningContext.workspace,
-             feature: planningContext.feature,
-             rules: planningContext.rules,
-             summary: planningContext.contextSummary
-           }
-         });
-       }
+        // Get context recommendations
+        const contextRequest = await enhancedContextManager.getContextRecommendations(prompt);
+        const contextResponse = await enhancedContextManager.requestContext(contextRequest);
+        const planningContext = await enhancedContextManager.analyzeContextForPlanning(prompt, contextResponse);
 
-       // For any other action types, return the response from the approach mapper
-       return res.json(response);
+        // Generate tool plan
+        const toolPlan = await agenticExecutor.planTools({ prompt }, planningContext);
 
-     } catch (error) {
-       console.error('❌ Error in AI-native intent recognition:', error.message);
-       // Fallback to simple response
-       return res.json({
-         type: 'simple_chat',
-         message: "I'm here to help! What would you like to work on?",
-         tools: [],
-         requiresApproval: false,
-         modelUsed: 'ai_intent_recognition (fallback)',
-         actionType: 'simple_chat'
-       });
-     }
+        return res.json({
+          type: 'execution_task',
+          message: toolPlan.description || `I'll help you with: ${prompt}`,
+          tools: toolPlan.tools.map(tool => ({
+            name: tool.tool,
+            description: tool.description,
+            parameters: tool.parameters || {},
+            context: tool.context || ''
+          })),
+          requiresApproval: actionType === 'execution_complex',
+          modelUsed: classificationResult ? `${classificationResult.recommendedModel} (AI classification)` : 'pattern-based (fallback)',
+          actionType: actionType,
+          context: {
+            workspace: planningContext.workspace,
+            feature: planningContext.feature,
+            rules: planningContext.rules,
+            summary: planningContext.contextSummary
+          }
+        });
+
+      default:
+        return res.json({
+          type: 'execution_task',
+          message: `I'll help you with: ${prompt}`,
+          tools: [],
+          requiresApproval: false,
+          modelUsed: 'pattern-based',
+          actionType: 'execution_simple'
+        });
+    }
 
   } catch (error) {
     console.error('❌ Error in /api/chat:', error.message);

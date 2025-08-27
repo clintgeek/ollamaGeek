@@ -978,13 +978,60 @@ Created automatically by OllamaGeek! 🚀`;
 Request: "${content}"
 
 Available tools:
-- create_file: Create new files with content
-- create_directory: Create new directories
-- edit_file: Modify existing files
-- delete_file: Remove files
-- run_terminal: Execute terminal commands
-- git_operation: Perform git operations
-- search_files: Search file content
+- create_file: Create new files with content (requires: name/path, content)
+- create_directory: Create new directories (requires: path)
+- edit_file: Modify existing files (requires: path, content)
+- delete_file: Remove files (requires: path)
+- run_terminal: Execute terminal commands (requires: command)
+- git_operation: Perform git operations (requires: operation, path)
+- search_files: Search file content (requires: query)
+
+CRITICAL WORKSPACE RULES:
+1. If the request specifies a folder/directory name (like "in mathGeek" or "in a folder named X"), ALL project files MUST be created INSIDE that folder
+2. NEVER create package.json, package-lock.json, or other project files in the root workspace
+3. Use relative paths like "folderName/package.json" not just "package.json"
+4. Respect the specified folder structure completely
+
+COMPLETE APP SCAFFOLDING REQUIREMENTS:
+For ANY application creation request, you MUST include these essential steps:
+
+**Node.js/Express Apps:**
+- create_directory for the project folder
+- create_file for package.json with ALL dependencies
+- create_file for main server file (index.js/app.js)
+- create_file for any additional source files
+- run_terminal for "npm install" to install dependencies
+- run_terminal for "npm start" or "node filename.js" to run
+
+**Python/Flask Apps:**
+- create_directory for the project folder
+- create_file for requirements.txt with ALL dependencies
+- create_file for main app file (app.py/main.py)
+- create_file for any additional source files
+- run_terminal for "pip install -r requirements.txt"
+- run_terminal for "python app.py" to run
+
+**Ruby on Rails Apps:**
+- create_directory for the project folder
+- create_file for Gemfile with ALL dependencies
+- create_file for main app files
+- run_terminal for "bundle install"
+- run_terminal for "rails server" to run
+
+**Perl Scripts:**
+- create_directory for the project folder
+- create_file for the main Perl script
+- create_file for any additional modules
+- run_terminal for "perl script.pl" to run
+
+**General Rules:**
+- ALWAYS create the project directory first
+- ALWAYS include dependency management files
+- ALWAYS include installation commands
+- ALWAYS include run commands
+- NEVER skip essential scaffolding steps
+
+IMPORTANT: You MUST provide ALL required parameters for each tool. For file creation, extract the filename and content from the request.
 
 Respond with a JSON plan:
 {
@@ -994,7 +1041,8 @@ Respond with a JSON plan:
       "tool": "tool_name",
       "description": "What this tool should do",
       "parameters": {
-        "param1": "value1"
+        "name": "filename.txt",
+        "content": "file content here"
       }
     }
   ],
@@ -1034,7 +1082,203 @@ Respond with a JSON plan:
   _getFallbackToolPlan(content) {
     const lowerContent = content.toLowerCase();
 
-    // Basic fallback logic
+        // Node.js app creation fallback
+        if (lowerContent.includes('node') && (lowerContent.includes('app') || lowerContent.includes('application'))) {
+          // Try to extract the folder name from the request
+          let dirName = this._extractFolderName(content);
+
+          // Fallback to default names if no folder name found
+          if (!dirName) {
+            dirName = lowerContent.includes('nodegeek') ? 'nodeGeek' : 'nodeApp';
+          }
+
+          return {
+            description: `Create a complete Node.js application in ${dirName} directory`,
+            tools: [
+              {
+                tool: "create_directory",
+                description: `Create ${dirName} directory`,
+                parameters: { path: dirName }
+              },
+              {
+                tool: "create_file",
+                description: `Create package.json for Node.js app`,
+                parameters: {
+                  path: `${dirName}/package.json`,
+                  content: `{\n  "name": "${dirName}",\n  "version": "1.0.0",\n  "description": "Node.js application created by OllamaGeek",\n  "main": "index.js",\n  "scripts": {\n    "start": "node index.js",\n    "dev": "node index.js"\n  },\n  "dependencies": {}\n}`
+                }
+              },
+              {
+                tool: "create_file",
+                description: `Create main index.js file`,
+                parameters: {
+                  path: `${dirName}/index.js`,
+                  content: `// Node.js application created by OllamaGeek\nconsole.log('Hello, World!');\n\n// Your Node.js app code goes here\n`
+                }
+              },
+              {
+                tool: "create_file",
+                description: `Create README.md`,
+                parameters: {
+                  path: `${dirName}/README.md`,
+                  content: `# ${dirName}\n\nNode.js application created by OllamaGeek.\n\n## Run\n\`\`\`bash\nnpm start\n\`\`\`\n\n## Development\n\`\`\`bash\nnpm run dev\n\`\`\``
+                }
+              },
+              {
+                tool: "run_terminal",
+                description: `Install dependencies`,
+                parameters: { command: `cd ${dirName} && npm install` }
+              },
+              {
+                tool: "run_terminal",
+                description: `Start the application`,
+                parameters: { command: `cd ${dirName} && npm start` }
+              }
+            ],
+            context: `Creating a complete Node.js application structure in ${dirName} directory with dependencies and run commands`
+          };
+        }
+
+        // Python/Flask app creation fallback
+        if (lowerContent.includes('python') || lowerContent.includes('flask') || lowerContent.includes('django')) {
+          let dirName = this._extractFolderName(content);
+          if (!dirName) {
+            dirName = lowerContent.includes('flask') ? 'flaskApp' : 'pythonApp';
+          }
+
+          return {
+            description: `Create a complete Python application in ${dirName} directory`,
+            tools: [
+              {
+                tool: "create_directory",
+                description: `Create ${dirName} directory`,
+                parameters: { path: dirName }
+              },
+              {
+                tool: "create_file",
+                description: `Create requirements.txt with dependencies`,
+                parameters: {
+                  path: `${dirName}/requirements.txt`,
+                  content: `flask==2.3.3\npython-dotenv==1.0.0\n`
+                }
+              },
+              {
+                tool: "create_file",
+                description: `Create main app.py file`,
+                parameters: {
+                  path: `${dirName}/app.py`,
+                  content: `from flask import Flask, render_template, request\n\napp = Flask(__name__)\n\n@app.route('/')\ndef home():\n    return "Hello from Flask!"\n\nif __name__ == '__main__':\n    app.run(debug=True)\n`
+                }
+              },
+              {
+                tool: "run_terminal",
+                description: `Install Python dependencies`,
+                parameters: { command: `cd ${dirName} && pip install -r requirements.txt` }
+              },
+              {
+                tool: "run_terminal",
+                description: `Start the Flask application`,
+                parameters: { command: `cd ${dirName} && python app.py` }
+              }
+            ],
+            context: `Creating a complete Python Flask application in ${dirName} directory`
+          };
+        }
+
+        // Ruby on Rails app creation fallback
+        if (lowerContent.includes('ruby') || lowerContent.includes('rails')) {
+          let dirName = this._extractFolderName(content);
+          if (!dirName) {
+            dirName = 'railsApp';
+          }
+
+          return {
+            description: `Create a complete Ruby on Rails application in ${dirName} directory`,
+            tools: [
+              {
+                tool: "create_directory",
+                description: `Create ${dirName} directory`,
+                parameters: { path: dirName }
+              },
+              {
+                tool: "create_file",
+                description: `Create Gemfile with dependencies`,
+                parameters: {
+                  path: `${dirName}/Gemfile`,
+                  content: `source 'https://rubygems.org'\n\ngem 'rails', '~> 7.0.0'\ngem 'sqlite3'\ngem 'puma'\ngem 'bootsnap'\n`
+                }
+              },
+              {
+                tool: "run_terminal",
+                description: `Install Ruby gems`,
+                parameters: { command: `cd ${dirName} && bundle install` }
+              },
+              {
+                tool: "run_terminal",
+                description: `Start the Rails server`,
+                parameters: { command: `cd ${dirName} && rails server` }
+              }
+            ],
+            context: `Creating a complete Ruby on Rails application in ${dirName} directory`
+          };
+        }
+
+        // Perl script creation fallback
+        if (lowerContent.includes('perl')) {
+          let dirName = this._extractFolderName(content);
+          if (!dirName) {
+            dirName = 'perlScript';
+          }
+
+          return {
+            description: `Create a complete Perl script in ${dirName} directory`,
+            tools: [
+              {
+                tool: "create_directory",
+                description: `Create ${dirName} directory`,
+                parameters: { path: dirName }
+              },
+              {
+                tool: "create_file",
+                description: `Create main Perl script`,
+                parameters: {
+                  path: `${dirName}/script.pl`,
+                  content: `#!/usr/bin/env perl\nuse strict;\nuse warnings;\n\nprint "Hello from Perl!\\n";\n\n# Your Perl code goes here\n`
+                }
+              },
+              {
+                tool: "run_terminal",
+                description: `Make script executable and run`,
+                parameters: { command: `cd ${dirName} && chmod +x script.pl && perl script.pl` }
+              }
+            ],
+            context: `Creating a complete Perl script in ${dirName} directory`
+          };
+        }
+
+        // File creation fallback
+        if (lowerContent.includes('file') || lowerContent.includes('create') || lowerContent.includes('make') || lowerContent.includes('new')) {
+          // Extract filename from the request
+          const filenameMatch = content.match(/(?:called|named?|create|make|new)\s+(?:a\s+)?(?:file\s+)?(?:called\s+)?([a-zA-Z0-9._-]+)/i);
+          const filename = filenameMatch ? filenameMatch[1] : 'newfile.txt';
+
+          return {
+            description: `Create a new file called ${filename}`,
+            tools: [
+              {
+                tool: "create_file",
+                description: `Create a new file called ${filename}`,
+                parameters: {
+                  name: filename,
+                  content: `// File created by OllamaGeek\n// ${filename}\n\n`
+                }
+              }
+            ],
+            context: `Creating a new file: ${filename}`
+          };
+        }
+
+    // Arduino fallback
     if (lowerContent.includes('arduino') || lowerContent.includes('led') || lowerContent.includes('flash')) {
       return {
         description: "Create Arduino project with LED blinking code",
@@ -1389,6 +1633,57 @@ Created automatically by OllamaGeek! 🚀`;
   }
 
   // AI execution methods removed - this is now a planning-only class
+
+  /**
+   * Extract folder name from content
+   */
+  _extractFolderName(content) {
+    const lowerContent = content.toLowerCase();
+
+    // Look for "in [name]" pattern (most common)
+    const inNameMatch = lowerContent.match(/in\s+([a-zA-Z0-9-_]+)/i);
+    if (inNameMatch) {
+      return inNameMatch[1];
+    }
+
+    // Look for "in a folder named [name]" pattern specifically
+    const inFolderNamedMatch = lowerContent.match(/in\s+a\s+folder\s+named\s+([a-zA-Z0-9-_]+)/i);
+    if (inFolderNamedMatch) {
+      return inFolderNamedMatch[1];
+    }
+
+    // Look for "in folder named [name]" pattern
+    const inFolderNamedMatch2 = lowerContent.match(/in\s+folder\s+named\s+([a-zA-Z0-9-_]+)/i);
+    if (inFolderNamedMatch2) {
+      return inFolderNamedMatch2[1];
+    }
+
+    // Look for "in a folder called [name]" pattern
+    const inFolderCalledMatch = lowerContent.match(/in\s+a\s+folder\s+called\s+([a-zA-Z0-9-_]+)/i);
+    if (inFolderCalledMatch) {
+      return inFolderCalledMatch[1];
+    }
+
+    // Look for "in folder called [name]" pattern
+    const inFolderCalledMatch2 = lowerContent.match(/in\s+folder\s+called\s+([a-zA-Z0-9-_]+)/i);
+    if (inFolderCalledMatch2) {
+      return inFolderCalledMatch2[1];
+    }
+
+    // Look for "folder named [name]" pattern
+    const folderNamedMatch = lowerContent.match(/folder\s+named\s+([a-zA-Z0-9-_]+)/i);
+    if (folderNamedMatch) {
+      return folderNamedMatch[1];
+    }
+
+    // Look for "folder called [name]" pattern
+    const folderCalledMatch = lowerContent.match(/folder\s+called\s+([a-zA-Z0-9-_]+)/i);
+    if (folderCalledMatch) {
+      return folderCalledMatch[1];
+    }
+
+    return null;
+  }
 }
 
 module.exports = { AgenticWorkflowExecutor };

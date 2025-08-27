@@ -180,12 +180,7 @@ class OllamaGeekClient {
      */
     async createFile(parameters) {
         // Handle both 'name' and 'path' parameters for flexibility
-        const { path, name, content, language } = parameters;
-        const filePath = path || name;
-
-        if (!filePath) {
-            throw new Error('File path or name is required');
-        }
+        const { path, name, content, language, targetDirectory, directory } = parameters;
 
         // Get workspace folder
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -193,8 +188,53 @@ class OllamaGeekClient {
             throw new Error('No workspace folder found');
         }
 
-        // Normalize the path - remove leading slash and ensure it's relative to project root
-        let normalizedPath = filePath.replace(/^\/+/, ''); // Remove leading slashes
+        let finalPath;
+        let fileName;
+
+        // Handle different parameter combinations
+        if (path) {
+            // Full path provided
+            finalPath = path;
+            fileName = require('path').basename(path);
+        } else if (name) {
+            // Just filename provided, check if we have a target directory
+            fileName = name;
+
+            if (targetDirectory || directory) {
+                // Create file in specified directory
+                const targetDir = targetDirectory || directory;
+                finalPath = `${targetDir}/${fileName}`;
+                console.log(`📁 Creating file in target directory: ${targetDir}`);
+                console.log(`📁 Full path: ${finalPath}`);
+            } else {
+                // Create file in root workspace
+                finalPath = fileName;
+                console.log(`📁 Creating file in workspace root: ${fileName}`);
+            }
+        } else {
+            throw new Error('File path or name is required');
+        }
+
+        // Normalize the path - handle both absolute and relative paths
+        let normalizedPath;
+
+        if (finalPath.startsWith('/')) {
+            // Absolute path - extract just the file path relative to workspace
+            const pathParts = finalPath.split('/');
+            const workspaceName = workspaceFolder.name;
+
+            // Find the workspace folder in the path and get everything after it
+            const workspaceIndex = pathParts.indexOf(workspaceName);
+            if (workspaceIndex !== -1) {
+                normalizedPath = pathParts.slice(workspaceIndex + 1).join('/');
+            } else {
+                // Fallback: just use the last part as filename
+                normalizedPath = pathParts[pathParts.length - 1];
+            }
+        } else {
+            // Relative path - use as is
+            normalizedPath = finalPath;
+        }
 
         // If no content provided, generate a default filename
         if (!normalizedPath.includes('/') && !normalizedPath.includes('.')) {
@@ -211,18 +251,23 @@ class OllamaGeekClient {
         const dirPath = vscode.Uri.joinPath(workspaceFolder.uri, require('path').dirname(normalizedPath));
         try {
             await vscode.workspace.fs.createDirectory(dirPath);
+            console.log(`✅ Directory ensured: ${dirPath.fsPath}`);
         } catch (error) {
             // Directory might already exist, that's fine
+            console.log(`ℹ️ Directory already exists: ${dirPath.fsPath}`);
         }
 
         // Create file with content
         const writeData = new Uint8Array(Buffer.from(content || '// File created by PluginGeek\n'));
         await vscode.workspace.fs.writeFile(fullFilePath, writeData);
+        console.log(`✅ File created: ${fullFilePath.fsPath}`);
 
         return {
             success: true,
             path: fullFilePath.fsPath,
-            message: `File created: ${normalizedPath}`
+            message: `File created: ${normalizedPath}`,
+            targetDirectory: targetDirectory || directory,
+            fileName: fileName
         };
     }
 
@@ -281,8 +326,26 @@ class OllamaGeekClient {
             throw new Error('No workspace folder found');
         }
 
-        // Normalize the path - remove leading slash and ensure it's relative to project root
-        let normalizedPath = path.replace(/^\/+/, ''); // Remove leading slashes
+        // Handle both absolute and relative paths
+        let normalizedPath;
+
+        if (path.startsWith('/')) {
+            // Absolute path - extract just the directory name relative to workspace
+            const pathParts = path.split('/');
+            const workspaceName = workspaceFolder.name;
+
+            // Find the workspace folder in the path and get everything after it
+            const workspaceIndex = pathParts.indexOf(workspaceName);
+            if (workspaceIndex !== -1) {
+                normalizedPath = pathParts.slice(workspaceIndex + 1).join('/');
+            } else {
+                // Fallback: just use the last part as directory name
+                normalizedPath = pathParts[pathParts.length - 1];
+            }
+        } else {
+            // Relative path - use as is
+            normalizedPath = path;
+        }
 
         // If it's just a name without path separators, assume it's a top-level directory
         if (!normalizedPath.includes('/')) {
@@ -333,13 +396,19 @@ class OllamaGeekClient {
         const terminal = vscode.window.createTerminal('PluginGeek');
         terminal.show();
 
+        // If working directory is specified, change to it first
+        if (cwd) {
+            terminal.sendText(`cd "${cwd}"`);
+        }
+
         // Execute command
         terminal.sendText(command);
 
         return {
             success: true,
             command,
-            message: `Command executed: ${command}`
+            message: `Command executed: ${command}`,
+            workingDirectory: cwd || 'workspace root'
         };
     }
 

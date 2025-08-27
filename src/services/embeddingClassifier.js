@@ -59,7 +59,7 @@ class EmbeddingClassifier {
           'what are the benefits of'
         ],
         keywords: ['explain', 'meaning', 'learn', 'advice', 'summarize', 'translate', 'story', 'difference', 'benefits'],
-        models: ['qwen2.5:7b-instruct-q6_K', 'llama3.1:8b-instruct-q4_K_M', 'qwen2.5:1.5b-instruct-q4_K_M']
+        models: ['qwen2.5:7b-instruct-q6_K', 'llama3.1:8b-instruct-q4_K_M', 'granite3.3:8b']
       },
       embeddings: {
         examples: [

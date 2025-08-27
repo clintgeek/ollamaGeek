@@ -11,7 +11,6 @@ class ChatViewProvider {
         this._disposables = [];
         this.chatSessions = new Map();
         this.currentChatId = null;
-        this.yoloMode = false;
         this.autoExecute = true; // Auto-execute simple tasks
         this.connectionStatus = 'disconnected';
         this.connectionRetryCount = 0;
@@ -186,22 +185,7 @@ class ChatViewProvider {
 
 
 
-    /**
-     * Toggle YOLO mode for immediate execution
-     */
-    toggleYoloMode() {
-        this.yoloMode = !this.yoloMode;
 
-        // Update the view
-        if (this._view) {
-            this._view.webview.postMessage({
-                command: 'yoloModeChanged',
-                yoloMode: this.yoloMode
-            });
-        }
-
-        console.log(`🔥 YOLO Mode: ${this.yoloMode ? 'ENABLED' : 'disabled'}`);
-    }
 
     /**
      * Toggle auto-execute mode for simple tasks
@@ -274,9 +258,6 @@ class ChatViewProvider {
                         return;
                     case 'reconnect':
                         this.attemptReconnect();
-                        return;
-                    case 'toggleYoloMode':
-                        this.toggleYoloMode();
                         return;
                     case 'toggleAutoExecute':
                         this.toggleAutoExecute();
@@ -650,11 +631,10 @@ class ChatViewProvider {
         <div class="chat-header">
             <h2>🚀 PluginGeek AI</h2>
             <p>Powered by OllamaGeek</p>
-            <div class="chat-controls">
-                <button class="control-button" onclick="createNewChat()">New Chat</button>
-                <button class="control-button" onclick="toggleYoloMode()" id="yoloModeToggle">🔥 YOLO Mode: disabled</button>
-                <button class="control-button" onclick="toggleAutoExecute()" id="autoExecuteToggle">⚡ Auto-Execute: enabled</button>
-            </div>
+                          <div class="chat-controls">
+                  <button class="control-button" onclick="createNewChat()">New Chat</button>
+                  <button class="control-button" onclick="toggleAutoExecute()" id="autoExecuteToggle">⚡ Auto-Execute: enabled</button>
+              </div>
         </div>
 
         <div class="chat-sessions scrollbar" id="chatSessions">
@@ -716,11 +696,7 @@ class ChatViewProvider {
             });
         }
 
-        function toggleYoloMode() {
-            vscode.postMessage({
-                command: 'toggleYoloMode'
-            });
-        }
+
 
         function switchToChat(chatId) {
             vscode.postMessage({
@@ -1060,14 +1036,7 @@ class ChatViewProvider {
                         messageInput2.focus();
                     }
                     break;
-                case 'yoloModeChanged':
-                    const yoloMode = message.yoloMode;
-                    const yoloModeToggle = document.getElementById('yoloModeToggle');
-                    if (yoloModeToggle) {
-                        yoloModeToggle.textContent = \`🔥 YOLO Mode: \${yoloMode ? 'ENABLED' : 'disabled'}\`;
-                        yoloModeToggle.className = \`control-button \${yoloMode ? 'active' : ''}\`;
-                    }
-                    break;
+
                 case 'autoExecuteChanged':
                     const autoExecute = message.autoExecute;
                     const autoExecuteToggle = document.getElementById('autoExecuteToggle');
@@ -1157,7 +1126,7 @@ class ChatViewProvider {
                     };
 
                     // Handle execution based on complexity and settings
-                    if (chatResponse.actionType === 'execution_simple' && (this.autoExecute || this.yoloMode)) {
+                    if (chatResponse.actionType === 'execution_simple' && this.autoExecute) {
                         // Auto-execute simple tasks
                         const executionResult = await this.executeApprovedPlan(response.plan);
                         if (executionResult.success) {
@@ -1165,16 +1134,6 @@ class ChatViewProvider {
                             response.executionResults = executionResult.results;
                         } else {
                             response.message += `\n\n❌ **Auto-execution failed:** ${executionResult.error}`;
-                        }
-                    } else if (chatResponse.actionType === 'execution_complex' && this.yoloMode) {
-                        // YOLO mode - execute immediately
-                        response.message += `\n\n🔥 **YOLO MODE ACTIVE** - Executing immediately!`;
-                        const yoloResult = await this.executeApprovedPlan(response.plan);
-                        if (yoloResult.success) {
-                            response.message += `\n\n⚡ **YOLO Execution Complete:** ${yoloResult.message}`;
-                            response.executionResults = yoloResult.results;
-                        } else {
-                            response.message += `\n\n❌ **YOLO Execution Failed:** ${yoloResult.error}`;
                         }
                     } else if (chatResponse.requiresApproval) {
                         // Ask for approval
@@ -1734,9 +1693,12 @@ class ChatViewProvider {
      */
     async handlePlanApproval(aiPlan) {
         try {
-            // Show approval dialog
+            // Format the plan details for display
+            const planDetails = this.formatPlanForApproval(aiPlan);
+
+            // Show approval dialog with plan details
             const approved = await vscode.window.showInformationMessage(
-                'Complex task detected. Do you approve this plan?',
+                `Complex task detected. Here's what I'll do:\n\n${planDetails}\n\nDo you approve this plan?`,
                 'Approve & Execute',
                 'Cancel'
             );
@@ -1757,6 +1719,32 @@ class ChatViewProvider {
                 error: error.message
             };
         }
+    }
+
+    /**
+     * Format plan details for approval dialog
+     */
+    formatPlanForApproval(aiPlan) {
+        let details = '';
+
+        if (aiPlan.description) {
+            details += `**Description:** ${aiPlan.description}\n\n`;
+        }
+
+        if (aiPlan.tools && aiPlan.tools.length > 0) {
+            details += `**Tools to execute:**\n`;
+            aiPlan.tools.forEach((tool, index) => {
+                details += `${index + 1}. **${tool.name}** - ${tool.description}\n`;
+                if (tool.parameters) {
+                    const paramStr = Object.entries(tool.parameters)
+                        .map(([key, value]) => `${key}: ${value}`)
+                        .join(', ');
+                    details += `   Parameters: ${paramStr}\n`;
+                }
+            });
+        }
+
+        return details;
     }
 
     /**
