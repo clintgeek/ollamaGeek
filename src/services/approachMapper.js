@@ -1,10 +1,12 @@
 const { Logger } = require('../utils/logger');
 const axios = require('axios'); // Added axios for AI interaction
+const PerformanceMonitor = require('./performanceMonitor');
 
 class ApproachMapper {
   constructor() {
     this.logger = new Logger();
     this.ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    this.performanceMonitor = new PerformanceMonitor();
   }
 
   /**
@@ -75,15 +77,23 @@ Respond with JSON:
   "safetyConsiderations": ["Ensure the app is secure"]
 }`;
 
+      // Start performance monitoring
+      const operationId = `approach_analysis_${Date.now()}`;
+      this.performanceMonitor.startTiming(operationId, 'qwen2.5-coder:7b-instruct-q6_K', 'approach_analysis');
+
+      // Smart model selection: Use qwen2.5-coder:7b for approach mapping (faster than granite)
       const response = await axios.post(`${this.ollamaBaseUrl}/api/generate`, {
-        model: 'granite3.3:8b',
+        model: 'qwen2.5-coder:7b-instruct-q6_K',
         prompt: analysisPrompt,
         stream: false,
         options: {
           temperature: 0.1,
           top_p: 0.9
         }
-      }, { timeout: 30000 });
+      }, { timeout: 120000 });
+
+      // End performance monitoring
+      this.performanceMonitor.endTiming(operationId, true);
 
       const content = response.data.response;
       const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -232,6 +242,9 @@ Respond with JSON:
       case 'simple_chat':
         return this.generateSimpleChatResponse(prompt, intentResult);
 
+      case 'web_search':
+        return this.generateWebSearchResponse(prompt, intentResult);
+
       case 'execution_simple':
       case 'execution_medium':
       case 'execution_complex':
@@ -361,6 +374,128 @@ Respond with JSON:
 
   handleSimpleQuestion(prompt) {
     return "I'd be happy to help answer your question! Could you provide more context about what you'd like to know?";
+  }
+
+  handleConversational(prompt) {
+    const lowerPrompt = prompt.toLowerCase();
+
+    // Handle basic greetings
+    if (lowerPrompt.includes('hello') || lowerPrompt.includes('hi') || lowerPrompt.includes('hey')) {
+      const responses = [
+        "Hey there! 👋 What's the vibe tonight - coding, chatting, or both? I'm ready for whatever you've got.",
+        "Yo! What's good? I'm here to code, chat, and maybe learn something new. What's on your mind?",
+        "Hello! 🚀 Ready to build something awesome or just shoot the breeze? I'm flexible like that.",
+        "Hey! What's the plan? Coding session, casual chat, or are we solving the world's problems tonight?"
+      ];
+      return responses[Math.floor(Math.random() * responses.length)];
+    }
+
+    // Handle casual conversation
+    if (lowerPrompt.includes('how are you') || lowerPrompt.includes('what\'s up') || lowerPrompt.includes('how\'s it going')) {
+      const responses = [
+        "Pretty solid! Though I'm more interested in what YOU'RE up to. What's the latest project or random thought?",
+        "Doing great! Just waiting for your next brilliant idea or random question. What's on your mind?",
+        "All good here! Though I'm curious - what's got you thinking tonight? Coding, life, or something completely random?",
+        "Can't complain! But enough about me - what's your story? What are we building or discussing tonight?"
+      ];
+      return responses[Math.floor(Math.random() * responses.length)];
+    }
+
+    // Handle thanks/gratitude
+    if (lowerPrompt.includes('thanks') || lowerPrompt.includes('thank you')) {
+      const responses = [
+        "Anytime! That's what I'm here for. What's next on the agenda?",
+        "You got it! Ready for the next challenge or question whenever you are.",
+        "No worries at all! What else can I help you with tonight?",
+        "My pleasure! What's the next thing we're tackling?"
+      ];
+      return responses[Math.floor(Math.random() * responses.length)];
+    }
+
+    // Handle questions about drinks/alcohol
+    if (lowerPrompt.includes('bourbon') || lowerPrompt.includes('whiskey') || lowerPrompt.includes('drink') || lowerPrompt.includes('pour')) {
+      const responses = [
+        "Oh man, now we're talking! 🥃 What's your usual go-to? I'm always curious about people's taste preferences.",
+        "Drink choices are serious business! What's the occasion? That'll help narrow down the options.",
+        "Ah, the important decisions in life! What's your mood tonight - something smooth and easy or something that'll wake up your taste buds?",
+        "Now THIS is the kind of problem I can get behind! What are you working with? I might have some thoughts..."
+      ];
+      return responses[Math.floor(Math.random() * responses.length)];
+    }
+
+    // Handle questions about vehicles/cars
+    if (lowerPrompt.includes('car') || lowerPrompt.includes('truck') || lowerPrompt.includes('vehicle') || lowerPrompt.includes('sierra') || lowerPrompt.includes('f150') || lowerPrompt.includes('silverado')) {
+      const responses = [
+        "Oh, vehicle talk! 🚗 What are you looking at? I'm always down to discuss cars, trucks, and everything in between.",
+        "Nice! What's the situation? New purchase, upgrade, or just window shopping? I love talking vehicles.",
+        "Vehicle decisions are the best kind of decisions! What's your current ride and what are you thinking about?",
+        "Oh man, I love talking cars and trucks! What's got you interested? I might have some thoughts..."
+      ];
+      return responses[Math.floor(Math.random() * responses.length)];
+    }
+
+    // Handle questions about sports/entertainment
+    if (lowerPrompt.includes('game') || lowerPrompt.includes('sport') || lowerPrompt.includes('team') || lowerPrompt.includes('movie') || lowerPrompt.includes('show')) {
+      const responses = [
+        "Oh yeah, what's happening? I'm always down to talk sports, movies, or whatever's on your mind!",
+        "Nice! What's the latest? I'm curious about what's got you interested.",
+        "Oh man, I love talking about this stuff! What's the scoop? I might have some thoughts...",
+        "Tell me more! What's got you thinking about this? I'm always up for a good discussion."
+      ];
+      return responses[Math.floor(Math.random() * responses.length)];
+    }
+
+    // Handle questions that might benefit from web search
+    if (this.needsWebSearch(prompt)) {
+      return {
+        type: 'web_search_suggested',
+        message: "That's a great question! I'd love to give you the most up-to-date info on that. Want me to search the web for the latest details?",
+        needsWebSearch: true,
+        searchQuery: prompt,
+        actionType: 'web_search'
+      };
+    }
+
+    // Default conversational response - more personality
+    const defaultResponses = [
+      "Interesting question! What's got you thinking about that? I'm curious about your take.",
+      "Oh, that's a good one! What's your perspective? I'd love to hear your thoughts.",
+      "Hmm, that's got me thinking too. What's your angle on this? I'm intrigued.",
+      "That's the kind of question I can get behind! What's your take? I'm all ears."
+    ];
+    return defaultResponses[Math.floor(Math.random() * defaultResponses.length)];
+  }
+
+  /**
+   * Check if a prompt might benefit from web search
+   */
+  needsWebSearch(prompt) {
+    const lowerPrompt = prompt.toLowerCase();
+
+    // Questions about current events, news, or recent information
+    const currentEventPatterns = [
+      'latest', 'recent', 'today', 'this week', 'this month', 'this year',
+      'news', 'update', 'announcement', 'release', 'launch', 'new',
+      'current', 'now', 'latest version', 'latest release'
+    ];
+
+    // Questions about specific products, companies, or technologies
+    const specificInfoPatterns = [
+      'price', 'cost', 'review', 'rating', 'comparison', 'vs', 'versus',
+      'specs', 'specifications', 'features', 'availability', 'stock',
+      'release date', 'launch date', 'when will', 'what is the'
+    ];
+
+    // Questions about live data or real-time information
+    const liveDataPatterns = [
+      'weather', 'temperature', 'forecast', 'traffic', 'stock price',
+      'crypto', 'bitcoin', 'ethereum', 'market', 'exchange rate',
+      'live', 'real-time', 'current status', 'is it working'
+    ];
+
+    // Check if prompt contains patterns that suggest web search would be helpful
+    const allPatterns = [...currentEventPatterns, ...specificInfoPatterns, ...liveDataPatterns];
+    return allPatterns.some(pattern => lowerPrompt.includes(pattern));
   }
 }
 

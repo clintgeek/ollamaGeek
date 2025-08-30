@@ -1,10 +1,12 @@
 const { Logger } = require('../utils/logger');
 const axios = require('axios');
+const PerformanceMonitor = require('./performanceMonitor');
 
 class AIToolGenerator {
   constructor() {
     this.logger = new Logger();
     this.ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    this.performanceMonitor = new PerformanceMonitor();
   }
 
   /**
@@ -52,31 +54,9 @@ class AIToolGenerator {
       this.logger.info(`✅ Generated ${tools.length} complete tools`);
       return tools;
 
-    } catch (error) {
+        } catch (error) {
       this.logger.error('AI-native tool generation failed:', error);
-
-      // Simple fallback tools
-      const fallbackTools = [
-        {
-          name: 'create_directory',
-          description: 'Create the project directory',
-          parameters: { path: 'mathGeek' },
-          context: 'Fallback tool generation'
-        },
-        {
-          name: 'create_file',
-          description: 'Create a basic file',
-          parameters: {
-            name: 'app.js',
-            content: 'console.log("Hello World");',
-            targetDirectory: 'mathGeek'
-          },
-          context: 'Fallback tool generation'
-        }
-      ];
-
-      this.logger.info('✅ Fallback tools generated');
-      return fallbackTools;
+      throw new Error('App creation tools must be AI-generated');
     }
   }
 
@@ -96,29 +76,87 @@ class AIToolGenerator {
       const tools = await this.generateToolContentWithAI(toolPlan, fullTargetDir, context);
 
       this.logger.info(`✅ Generated ${tools.length} file operation tools`);
+
+      // If AI generation fails, fall back to simple pattern-based tools
+      if (tools.length === 0) {
+        this.logger.info('🔄 AI generation returned 0 tools, using fallback pattern matching');
+        return this.generateSimpleFileTools(prompt);
+      }
+
       return tools;
 
     } catch (error) {
       this.logger.error('File operation tool generation failed:', error);
-      // Fallback to simple tools
-      return [
-        {
-          name: 'create_directory',
-          description: 'Create the target directory',
-          parameters: { path: 'greetings' },
-          context: 'File operation fallback'
-        },
-        {
-          name: 'create_file',
-          description: 'Create the target file',
-          parameters: {
-            name: 'hello.txt',
-            content: 'Hello World',
-            targetDirectory: 'greetings'
-          },
-          context: 'File operation fallback'
+      this.logger.info('🔄 Falling back to simple pattern-based tools');
+      return this.generateSimpleFileTools(prompt);
+    }
+  }
+
+  /**
+   * Generate simple file operation tools using pattern matching
+   */
+  generateSimpleFileTools(prompt) {
+    try {
+      this.logger.info('🔧 Generating simple file tools using pattern matching');
+
+      const lowerPrompt = prompt.toLowerCase();
+      const tools = [];
+
+      // File creation patterns
+      if (lowerPrompt.includes('create') && lowerPrompt.includes('file')) {
+        const fileMatch = lowerPrompt.match(/create\s+(?:a\s+)?([^.\s]+\.\w+)/);
+        if (fileMatch) {
+          const fileName = fileMatch[1];
+          tools.push({
+            name: 'createFile',
+            description: `Create the file ${fileName}`,
+            priority: 1,
+            dependencies: [],
+            estimatedTime: '1 minute',
+            context: {
+              projectType: 'file_ops',
+              projectName: 'file_creation',
+              targetDir: '.'
+            },
+            params: {
+              filePath: fileName,
+              content: `// ${fileName} created by PluginGeek`,
+              directory: 'app'
+            }
+          });
         }
-      ];
+      }
+
+      // Directory creation patterns
+      if (lowerPrompt.includes('create') && lowerPrompt.includes('directory')) {
+        const dirMatch = lowerPrompt.match(/create\s+(?:a\s+)?([^.\s]+)/);
+        if (dirMatch) {
+          const dirName = dirMatch[1];
+          tools.push({
+            name: 'createDirectory',
+            description: `Create the directory ${dirName}`,
+            priority: 1,
+            dependencies: [],
+            estimatedTime: '1 minute',
+            context: {
+              projectType: 'file_ops',
+              projectName: 'directory_creation',
+              targetDir: '.'
+            },
+            params: {
+              directory: dirName,
+              basePath: 'app'
+            }
+          });
+        }
+      }
+
+      this.logger.info(`✅ Generated ${tools.length} simple file tools`);
+      return tools;
+
+    } catch (error) {
+      this.logger.error('Simple file tool generation failed:', error);
+      return [];
     }
   }
 
@@ -126,34 +164,96 @@ class AIToolGenerator {
    * Generate code analysis tools
    */
   async generateCodeAnalysisTools(prompt, intentResult, context) {
-    return [
-      {
-        name: 'run_terminal',
-        description: 'Analyze code structure and dependencies',
-        parameters: {
-          command: 'find . -name "*.js" -o -name "*.ts" -o -name "*.py" | head -10',
-          cwd: '.'
-        },
-        context: 'Code analysis preparation'
+    try {
+      this.logger.info('🧠 Generating code analysis tools with AI...');
+
+      const analysisPrompt = `Generate tools for code analysis: "${prompt}"
+
+Generate 2-4 tools for code analysis tasks. Each tool needs:
+- toolName: create_directory, create_file, or run_terminal
+- description: what it does
+- priority: 1, 2, 3...
+- dependencies: []
+- estimatedTime: "5 minutes"
+- context: {"projectType": "analysis", "projectName": "code_analysis", "targetDir": "."}
+
+Common code analysis tools:
+- run_terminal: Find files, run linters, check dependencies
+- create_file: Generate analysis reports, create config files
+- create_directory: Set up analysis workspace
+
+Respond with JSON array of tools.`;
+
+      const response = await axios.post(`${this.ollamaBaseUrl}/api/generate`, {
+        model: 'qwen2.5-coder:7b-instruct-q6_K',
+        prompt: analysisPrompt,
+        stream: false,
+        options: { temperature: 0.1, top_p: 0.9 }
+      }, { timeout: 120000 });
+
+      const content = response.data.response;
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+
+      if (jsonMatch) {
+        const tools = JSON.parse(jsonMatch[0]);
+        this.logger.info(`✅ Generated ${tools.length} code analysis tools with AI`);
+        return tools;
       }
-    ];
+
+      throw new Error('Failed to parse AI-generated code analysis tools');
+
+    } catch (error) {
+      this.logger.error('AI code analysis tool generation failed:', error);
+      throw new Error('Code analysis tools must be AI-generated');
+    }
   }
 
   /**
    * Generate system operation tools
    */
   async generateSystemOperationTools(prompt, intentResult, context) {
-    return [
-      {
-        name: 'run_terminal',
-        description: 'Check system status and dependencies',
-        parameters: {
-          command: 'node --version && npm --version',
-          cwd: '.'
-        },
-        context: 'System status check'
+    try {
+      this.logger.info('🧠 Generating system operation tools with AI...');
+
+      const systemPrompt = `Generate tools for system operations: "${prompt}"
+
+Generate 2-4 tools for system-level tasks. Each tool needs:
+- toolName: create_directory, create_file, or run_terminal
+- description: what it does
+- priority: 1, 2, 3...
+- dependencies: []
+- estimatedTime: "10 minutes"
+- context: {"projectType": "system", "projectName": "system_ops", "targetDir": "."}
+
+Common system operation tools:
+- run_terminal: Check versions, install packages, run system commands
+- create_file: Generate config files, create scripts
+- create_directory: Set up system directories
+
+Respond with JSON array of tools.`;
+
+      const response = await axios.post(`${this.ollamaBaseUrl}/api/generate`, {
+        model: 'qwen2.5-coder:7b-instruct-q6_K',
+        prompt: systemPrompt,
+        stream: false,
+        options: { temperature: 0.1, top_p: 0.9 }
+      }, { timeout: 120000 });
+
+      const content = response.data.response;
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+
+      if (jsonMatch) {
+        const tools = JSON.parse(jsonMatch[0]);
+        this.logger.info(`✅ Generated ${tools.length} system operation tools with AI`);
+        return tools;
       }
-    ];
+
+      throw new Error('Failed to parse AI-generated system operation tools');
+
+    } catch (error) {
+      this.logger.error('AI system operation tool generation failed:', error);
+      throw new Error('System operation tools must be AI-generated');
+    }
   }
 
   /**
@@ -180,7 +280,7 @@ class AIToolGenerator {
         prompt: workflowPrompt,
         stream: false,
         options: { temperature: 0.1, top_p: 0.9 }
-      }, { timeout: 30000 });
+      }, { timeout: 120000 });
 
       const content = response.data.response;
       const jsonMatch = content.match(/\[[\s\S]*\]/);
@@ -193,7 +293,7 @@ class AIToolGenerator {
 
     } catch (error) {
       this.logger.error('Complex workflow tool generation failed:', error);
-      return this.generateFallbackComplexTools(prompt);
+      throw new Error('Complex workflow tools must be AI-generated');
     }
   }
 
@@ -201,17 +301,48 @@ class AIToolGenerator {
    * Generate general tools
    */
   async generateGeneralTools(prompt, intentResult, context) {
-    return [
-      {
-        name: 'run_terminal',
-        description: 'Execute general command',
-        parameters: {
-          command: 'echo "General tool execution"',
-          cwd: '.'
-        },
-        context: 'General tool fallback'
+    try {
+      this.logger.info('🧠 Generating general tools with AI...');
+
+      const generalPrompt = `Generate tools for general assistance: "${prompt}"
+
+Generate 1-3 tools for general help tasks. Each tool needs:
+- toolName: create_directory, create_file, or run_terminal
+- description: what it does
+- priority: 1, 2, 3...
+- dependencies: []
+- estimatedTime: "5 minutes"
+- context: {"projectType": "general", "projectName": "general_assistance", "targetDir": "."}
+
+Common general tools:
+- run_terminal: Display information, run simple commands
+- create_file: Generate help files, create documentation
+- create_directory: Set up help directories
+
+Respond with JSON array of tools.`;
+
+      const response = await axios.post(`${this.ollamaBaseUrl}/api/generate`, {
+        model: 'qwen2.5-coder:7b-instruct-q6_K',
+        prompt: generalPrompt,
+        stream: false,
+        options: { temperature: 0.1, top_p: 0.9 }
+      }, { timeout: 120000 });
+
+      const content = response.data.response;
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+
+      if (jsonMatch) {
+        const tools = JSON.parse(jsonMatch[0]);
+        this.logger.info(`✅ Generated ${tools.length} general tools with AI`);
+        return tools;
       }
-    ];
+
+      throw new Error('Failed to parse AI-generated general tools');
+
+    } catch (error) {
+      this.logger.error('AI general tool generation failed:', error);
+      throw new Error('General tools must be AI-generated');
+    }
   }
 
   /**
@@ -221,84 +352,341 @@ class AIToolGenerator {
     try {
       const planningPrompt = `Generate tools for: "${prompt}"
 
-Target Directory: ${targetDir}
+Target Directory: ${targetDir || 'app'}
 
-CRITICAL RULES:
-- If the request mentions "app", "express", "server", "npm", "package.json" → Generate EXACTLY 6 tools
-- If the request is just file/directory creation → Generate 1-3 tools
+**CRITICAL: For app creation, the targetDir should be "/Users/ccrocker/projects/${targetDir}" (e.g., "/Users/ccrocker/projects/mathGeek")**
 
-FOR APP CREATION (6 tools required):
-1. create_directory - Create project folder
-2. create_file - Create package.json with Express dependency
-3. create_file - Create server file (app.js or server.js)
-4. create_file - Create HTML frontend
-5. run_terminal - Install dependencies with npm install
-6. run_terminal - Start app with npm start
+**EXAMPLE: If targetDir is "mathGeek", then use "/Users/ccrocker/projects/mathGeek"**
 
-FOR SIMPLE FILE OPERATIONS (1-3 tools):
-- create_directory - if directory creation needed
-- create_file - if file creation needed
-- run_terminal - if commands needed
+**DO NOT use "/Users/ccrocker/projects" alone - always include the project folder name!**
 
-Each tool needs:
-- toolName: create_directory, create_file, or run_terminal
-- description: what it does
-- priority: 1, 2, 3...
-- dependencies: []
-- estimatedTime: "5 minutes"
-- context: {"projectType": "nodejs", "projectName": "${targetDir.split('/').pop()}", "targetDir": "${targetDir}"}
+RULES:
+- For "Create a [filename]" → Generate 1 tool: create_file (assume directory exists)
+- For "Create a [dirname] directory" → Generate 1 tool: create_directory
+- For "Create [filename] inside [dirname]" → Generate 2 tools: create_directory, then create_file
+- For "Create [filename] in [dirname]" → Generate 2 tools: create_directory, then create_file
+- For app creation requests → Generate 5-6 tools: create_directory, package.json, server file, HTML file, CSS file, run_terminal (npm install), run_terminal (npm start)
+- For web apps with forms → Ensure HTML file is named appropriately (form.html for forms, index.html for general)
+- CRITICAL: Only use these tool names: create_directory, create_file, run_terminal
+- For npm commands, use run_terminal tool type, not npm_install or npm_start
 
-Follow the rules above strictly.`;
+Each tool MUST have this EXACT structure:
+{
+  "toolName": "create_directory",
+  "description": "what it does",
+  "priority": 1,
+  "dependencies": [],
+  "estimatedTime": "1 minute",
+  "context": {
+    "projectType": "file_ops",
+    "projectName": "simple",
+    "targetDir": "${targetDir || 'app'}"
+  }
+}
+
+CRITICAL: Every tool MUST include the context field with targetDir.
+
+Respond with a JSON array of tools.`;
 
       this.logger.info('🧠 Planning tools with AI...');
 
+      // Start performance monitoring
+      const operationId = `tool_planning_${Date.now()}`;
+      this.performanceMonitor.startTiming(operationId, 'qwen2.5-coder:7b-instruct-q6_K', 'tool_planning');
+
       const response = await axios.post(`${this.ollamaBaseUrl}/api/generate`, {
-        model: 'granite3.3:8b',
+        model: 'qwen2.5-coder:7b-instruct-q6_K',
         prompt: planningPrompt,
         stream: false,
         options: {
           temperature: 0.1,
           top_p: 0.9
         }
-      }, { timeout: 30000 });
+      }, { timeout: 120000 });
+
+      // End performance monitoring
+      this.performanceMonitor.endTiming(operationId, true);
 
       const content = response.data.response;
       this.logger.info(`🧠 AI planning response: ${content.length} characters`);
+      this.logger.info(`🧠 AI planning response content: ${content.substring(0, 500)}...`);
 
-      // Try to extract JSON with better error handling
+            // Try to extract JSON with multiple strategies
       let toolPlan = null;
 
+      // Strategy 1: Direct JSON array extraction
       try {
         const jsonMatch = content.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
           toolPlan = JSON.parse(jsonMatch[0]);
-          this.logger.info(`✅ JSON parsed successfully`);
+          this.logger.info(`✅ JSON parsed successfully with Strategy 1`);
         }
       } catch (parseError) {
-        this.logger.warn(`⚠️ JSON parse failed: ${parseError.message}`);
+        this.logger.warn(`⚠️ Strategy 1 failed: ${parseError.message}`);
+      }
 
-        // Try to clean the content and parse again
+      // Strategy 1.5: Extract JSON from markdown code blocks
+      if (!toolPlan) {
         try {
-          let cleanedContent = content.replace(/```json\s*/g, '').replace(/```\s*$/g, '');
-          const cleanedMatch = cleanedContent.match(/\[[\s\S]*\]/);
-          if (cleanedMatch) {
-            toolPlan = JSON.parse(cleanedMatch[0]);
-            this.logger.info(`✅ JSON parsed successfully after cleaning`);
+          const codeBlockMatch = content.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/);
+          if (codeBlockMatch) {
+            toolPlan = JSON.parse(codeBlockMatch[1]);
+            this.logger.info(`✅ JSON parsed successfully with Strategy 1.5 (markdown)`);
           }
-        } catch (cleanError) {
-          this.logger.warn(`⚠️ Cleaned JSON parse also failed: ${cleanError.message}`);
+        } catch (parseError) {
+          this.logger.warn(`⚠️ Strategy 1.5 failed: ${parseError.message}`);
+        }
+      }
+
+            // Strategy 1.6: Parse numbered list format from AI
+      if (!toolPlan) {
+        try {
+          // AI generates numbered lists like "1. Tool: create_directory" or "1. Tool Name: create_directory"
+          const toolMatches = content.match(/\d+\.\s*Tool(?:\s+Name)?:\s*([^\n]+)[\s\S]*?Context:\s*(\{[^}]*\})/g);
+          if (toolMatches && toolMatches.length > 0) {
+            const tools = [];
+            for (const match of toolMatches) {
+              try {
+                const toolNameMatch = match.match(/Tool(?:\s+Name)?:\s*([^\n]+)/);
+                const contextMatch = match.match(/Context:\s*(\{[^}]*\})/);
+                const descriptionMatch = match.match(/Description:\s*([^\n]+)/);
+                const priorityMatch = match.match(/Priority:\s*(\d+)/);
+                const timeMatch = match.match(/Estimated Time:\s*"([^"]+)"/);
+                const dependenciesMatch = match.match(/Dependencies:\s*(\[[^\]]*\])/);
+
+                if (toolNameMatch) {
+                  const tool = {
+                    toolName: toolNameMatch[1].trim(),
+                    description: descriptionMatch ? descriptionMatch[1].trim() : 'Generated by AI',
+                    priority: priorityMatch ? parseInt(priorityMatch[1]) : 1,
+                    dependencies: dependenciesMatch ? JSON.parse(dependenciesMatch[1]) : [],
+                    estimatedTime: timeMatch ? timeMatch[1] : '5 minutes',
+                    context: contextMatch ? JSON.parse(contextMatch[1]) : {}
+                  };
+                  tools.push(tool);
+                }
+              } catch (parseError) {
+                this.logger.warn(`⚠️ Failed to parse tool from numbered list: ${parseError.message}`);
+              }
+            }
+            if (tools.length > 0) {
+              toolPlan = tools;
+              this.logger.info(`✅ JSON parsed successfully with Strategy 1.6 (numbered list)`);
+            }
+          }
+        } catch (parseError) {
+          this.logger.warn(`⚠️ Strategy 1.6 failed: ${parseError.message}`);
+                }
+      }
+
+      // Strategy 1.7: Parse bullet-point format from AI (more flexible)
+      if (!toolPlan) {
+        try {
+          // AI sometimes generates bullet-point format like "• create_file - Creates a file"
+          const toolMatches = content.match(/[•\-\*]\s*([^\s]+)\s*-\s*([^\n]+)[\s\S]*?Context:\s*(\{[^}]*\})/g);
+          if (toolMatches && toolMatches.length > 0) {
+            const tools = [];
+            for (const match of toolMatches) {
+              try {
+                const toolNameMatch = match.match(/[•\-\*]\s*([^\s]+)\s*-\s*([^\n]+)/);
+                const contextMatch = match.match(/Context:\s*(\{[^}]*\})/);
+                const priorityMatch = match.match(/Priority:\s*(\d+)/);
+                const timeMatch = match.match(/Estimated Time:\s*"([^"]+)"/);
+                const dependenciesMatch = match.match(/Dependencies:\s*(\[[^\]]*\])/);
+
+                if (toolNameMatch) {
+                  const tool = {
+                    toolName: toolNameMatch[1].trim(),
+                    description: toolNameMatch[2].trim(),
+                    priority: priorityMatch ? parseInt(priorityMatch[1]) : 1,
+                    dependencies: dependenciesMatch ? JSON.parse(dependenciesMatch[1]) : [],
+                    estimatedTime: timeMatch ? timeMatch[1] : '5 minutes',
+                    context: contextMatch ? JSON.parse(contextMatch[1]) : {}
+                  };
+                  tools.push(tool);
+                }
+              } catch (parseError) {
+                this.logger.warn(`⚠️ Failed to parse tool from bullet format: ${parseError.message}`);
+              }
+            }
+            if (tools.length > 0) {
+              toolPlan = tools;
+              this.logger.info(`✅ JSON parsed successfully with Strategy 1.7 (bullet format)`);
+            }
+          }
+        } catch (parseError) {
+          this.logger.warn(`⚠️ Strategy 1.7 failed: ${parseError.message}`);
+        }
+      }
+
+      // Strategy 2: Try to find the last complete JSON array
+      if (!toolPlan) {
+        const allMatches = content.match(/\[[\s\S]*\]/g);
+        if (allMatches) {
+          for (let i = allMatches.length - 1; i >= 0; i--) {
+            try {
+              toolPlan = JSON.parse(allMatches[i]);
+              this.logger.info(`✅ JSON parsed successfully with Strategy 2`);
+              break;
+            } catch (parseError) {
+              // Continue to next match
+            }
+          }
+        }
+      }
+
+      // Strategy 2.5: Try to find JSON array with minimal cleaning
+      if (!toolPlan) {
+        try {
+          // Just remove markdown code blocks, keep everything else
+          let minimalClean = content
+            .replace(/```(?:json)?\s*/g, '')
+            .replace(/```\s*$/g, '');
+
+          this.logger.info(`🔍 Strategy 2.5 minimal clean: ${minimalClean.substring(0, 200)}...`);
+
+          const minimalMatch = minimalClean.match(/\[[\s\S]*\]/);
+          if (minimalMatch) {
+            this.logger.info(`🔍 Strategy 2.5 extracted match: ${minimalMatch[0].substring(0, 200)}...`);
+            toolPlan = JSON.parse(minimalMatch[0]);
+            this.logger.info(`✅ JSON parsed successfully with Strategy 2.5 (minimal cleaning)`);
+          }
+        } catch (parseError) {
+          this.logger.warn(`⚠️ Strategy 2.5 failed: ${parseError.message}`);
+        }
+      }
+
+      // Strategy 3: Try to fix common AI JSON issues
+      if (!toolPlan) {
+        try {
+          // Remove common AI artifacts and try to reconstruct JSON
+          let cleanedContent = content.replace(/```json\s*/g, '').replace(/```\s*$/g, '');
+          cleanedContent = cleanedContent.replace(/^[^{]*/, '').replace(/[^}]*$/, '');
+
+          // Try to find JSON array in cleaned content
+          const fixedMatch = cleanedContent.match(/\[[\s\S]*\]/);
+          if (fixedMatch) {
+            toolPlan = JSON.parse(fixedMatch[0]);
+            this.logger.info(`✅ JSON parsed successfully with Strategy 3 (cleaned)`);
+          }
+        } catch (parseError) {
+          this.logger.warn(`⚠️ Strategy 3 failed: ${parseError.message}`);
+        }
+      }
+
+      // Strategy 3.5: More aggressive markdown cleaning
+      if (!toolPlan) {
+        try {
+          // Remove all markdown formatting and extract pure JSON
+          let aggressiveClean = content
+            .replace(/```(?:json)?\s*/g, '')
+            .replace(/```\s*$/g, '')
+            .replace(/^[\s\S]*?\[/, '[')
+            .replace(/\][\s\S]*$/, ']');
+
+          this.logger.info(`🔍 Strategy 3.5 cleaned content: ${aggressiveClean.substring(0, 200)}...`);
+
+          const aggressiveMatch = aggressiveClean.match(/\[[\s\S]*\]/);
+          if (aggressiveMatch) {
+            this.logger.info(`🔍 Strategy 3.5 extracted match: ${aggressiveMatch[0].substring(0, 200)}...`);
+            toolPlan = JSON.parse(aggressiveMatch[0]);
+            this.logger.info(`✅ JSON parsed successfully with Strategy 3.5 (aggressive cleaning)`);
+          }
+        } catch (parseError) {
+          this.logger.warn(`⚠️ Strategy 3.5 failed: ${parseError.message}`);
+        }
+      }
+
+      // Strategy 4: Try to extract individual tools and reconstruct array
+      if (!toolPlan) {
+        try {
+          const toolMatches = content.match(/\{[^{}]*\}/g);
+          if (toolMatches && toolMatches.length > 0) {
+            const tools = [];
+            for (const toolMatch of toolMatches) {
+              try {
+                const tool = JSON.parse(toolMatch);
+                if (tool.toolName || tool.name) {
+                  tools.push(tool);
+                }
+              } catch (parseError) {
+                // Skip invalid tools
+              }
+            }
+            if (tools.length > 0) {
+              toolPlan = tools;
+              this.logger.info(`✅ JSON parsed successfully with Strategy 4 (reconstructed)`);
+            }
+          }
+        } catch (parseError) {
+          this.logger.warn(`⚠️ Strategy 4 failed: ${parseError.message}`);
+        }
+      }
+
+      // Strategy 5: Last resort - try to find any valid JSON structure
+      if (!toolPlan) {
+        try {
+          // Look for any array-like structure and try to fix it
+          const anyArrayMatch = content.match(/\[[\s\S]*\]/);
+          if (anyArrayMatch) {
+            let lastResort = anyArrayMatch[0];
+
+            // Try to fix common JSON issues
+            lastResort = lastResort
+              .replace(/([a-zA-Z_][a-zA-Z0-9_]*):/g, '"$1":') // Quote unquoted keys
+              .replace(/'/g, '"') // Replace single quotes with double quotes
+              .replace(/,(\s*[}\]])/g, '$1'); // Remove trailing commas
+
+            toolPlan = JSON.parse(lastResort);
+            this.logger.info(`✅ JSON parsed successfully with Strategy 5 (last resort)`);
+          }
+        } catch (parseError) {
+          this.logger.warn(`⚠️ Strategy 5 failed: ${parseError.message}`);
         }
       }
 
       if (!toolPlan) {
-        throw new Error('Failed to parse AI-generated tool plan');
+        throw new Error('Failed to parse AI-generated tool plan with all strategies');
       }
 
-      // Validate tool plan variety - be more flexible
-      const toolTypes = toolPlan.map(t => t.toolName);
+      // Debug: Log what we actually parsed
+      this.logger.info(`🔍 Parsed tool plan structure:`, {
+        length: toolPlan.length,
+        type: typeof toolPlan,
+        isArray: Array.isArray(toolPlan),
+        sample: toolPlan.length > 0 ? toolPlan[0] : 'empty'
+      });
+
+            // Validate tool plan variety - be more flexible
+      const toolTypes = toolPlan.map(t => t.toolName || t.name || t.tool || 'unknown');
+
+      // Filter out unnecessary run_terminal tools for simple file operations
+      if (toolTypes.includes('create_file') || toolTypes.includes('create_directory')) {
+        const filteredPlan = toolPlan.filter(tool => {
+          const toolType = tool.toolName || tool.name || tool.tool;
+          // Keep create_file and create_directory, remove run_terminal unless it's for actual commands
+          if (toolType === 'run_terminal') {
+            const description = tool.description || '';
+            // Only keep run_terminal if it's for actual commands like npm install, not just "opens terminal"
+            return description.toLowerCase().includes('install') ||
+                   description.toLowerCase().includes('command') ||
+                   description.toLowerCase().includes('npm') ||
+                   description.toLowerCase().includes('git');
+          }
+          return true;
+        });
+
+        if (filteredPlan.length !== toolPlan.length) {
+          this.logger.info(`🔧 Filtered out ${toolPlan.length - filteredPlan.length} unnecessary tools`);
+          toolPlan = filteredPlan;
+        }
+      }
 
       // Check if this is a simple file operation (1-3 tools) or app creation (6 tools)
-      const isSimpleFileOp = toolPlan.length <= 3 && toolTypes.includes('create_directory') && toolTypes.includes('create_file');
+      const isSimpleFileOp = toolPlan.length <= 3 && (
+        toolTypes.includes('create_file') ||
+        toolTypes.includes('create_directory')
+      );
       const isAppCreation = toolPlan.length === 6 && toolTypes.filter(t => t === 'create_file').length === 3;
 
       if (isSimpleFileOp || isAppCreation) {
@@ -384,9 +772,9 @@ Project Context: ${JSON.stringify(plan.context)}
 
 CRITICAL: The tool name MUST be exactly "${plan.toolName}"
 
-${plan.toolName === 'create_directory' ? `Set path to "${plan.context.targetDir}"` : ''}
-${plan.toolName === 'create_file' ? `Set name to "filename", content to "simple file content", targetDirectory to "${plan.context.targetDir}"` : ''}
-${plan.toolName === 'run_terminal' ? `Set command to "npm command", cwd to "${plan.context.targetDir}"` : ''}
+${plan.toolName === 'create_directory' ? `Set path to "${plan.context?.targetDir || targetDir}"` : ''}
+${plan.toolName === 'create_file' ? `Set name to the EXACT filename from the description. For HTML files, if the description mentions a form or calculator, create a form.html file. For server files, use server.js. For package.json, use {"name":"${plan.context?.projectName || 'app'}","version":"1.0.0","main":"server.js","scripts":{"start":"node server.js"},"dependencies":{"express":"^4.18.0"}}. For CSS files, create modern, responsive styling. targetDirectory to "${plan.context?.targetDir || targetDir}". CRITICAL: Use the exact filename mentioned in the description! If no filename is specified, use a descriptive name like "app.js" or "index.html"! NEVER use "unknown.txt" as a filename!` : ''}
+${plan.toolName === 'run_terminal' ? `Set command to the exact command from the description (e.g., "npm init -y", "npm install express", "npm start"). IMPORTANT: For app creation, the FIRST run_terminal tool MUST be "npm install" to install dependencies, then the SECOND can be "npm start". cwd to "${plan.context?.targetDir || targetDir}"` : ''}
 
 IMPORTANT:
 - Generate the ACTUAL tool with real values, not a tool definition/schema
@@ -403,15 +791,29 @@ Respond with valid JSON:
   "context": "${plan.context.projectName}"
 }`;
 
+      // Smart model selection based on complexity and performance
+      const modelSelection = await this.selectOptimalModelForToolGeneration(plan, context);
+      const selectedModel = modelSelection.model;
+      const timeout = modelSelection.timeout;
+
+      this.logger.info(`🧠 Selected model for tool generation: ${selectedModel} (${modelSelection.reason})`);
+
+      // Start performance monitoring
+      const operationId = `tool_generation_${Date.now()}`;
+      this.performanceMonitor.startTiming(operationId, selectedModel, 'tool_generation');
+
       const response = await axios.post(`${this.ollamaBaseUrl}/api/generate`, {
-        model: 'qwen2.5-coder:14b-instruct-q4_K_M',
+        model: selectedModel,
         prompt: toolPrompt,
         stream: false,
         options: {
           temperature: 0.1,
           top_p: 0.9
         }
-      }, { timeout: 45000 }); // Heavy model for tool generation
+      }, { timeout: timeout });
+
+      // End performance monitoring
+      this.performanceMonitor.endTiming(operationId, true);
 
       const content = response.data.response;
       this.logger.info(`🧠 AI response received: ${content.length} characters`);
@@ -498,6 +900,213 @@ Respond with valid JSON:
         this.logger.error(`Response data: ${JSON.stringify(error.response.data)}`);
       }
       return null;
+    }
+  }
+
+  /**
+   * Smart model selection for tool generation based on complexity and performance
+   */
+  async selectOptimalModelForToolGeneration(plan, context) {
+    try {
+      // Determine task complexity first
+      const taskComplexity = this.assessTaskComplexity(plan, context);
+
+      // Get performance recommendations from our monitor
+      const recommendations = this.performanceMonitor.getModelRecommendations('tool_generation', taskComplexity);
+
+      // Available models with their characteristics
+      const availableModels = {
+        'qwen2.5-coder:14b-instruct-q4_K_M': {
+          capability: 'high',
+          speed: 'slow',
+          accuracy: 'very_high',
+          bestFor: ['complex_code', 'large_files', 'sophisticated_logic'],
+          timeout: 120000
+        },
+        'qwen2.5-coder:7b-instruct-q6_K': {
+          capability: 'medium',
+          speed: 'fast',
+          accuracy: 'high',
+          bestFor: ['simple_tools', 'basic_files', 'standard_operations'],
+          timeout: 60000
+        },
+        'llama3.1:8b-instruct-q4_K_M': {
+          capability: 'medium',
+          speed: 'fast',
+          accuracy: 'good',
+          bestFor: ['simple_tools', 'basic_files', 'quick_prototyping'],
+          timeout: 45000
+        }
+      };
+
+
+
+      // Select model based on complexity and performance
+      let selectedModel = 'qwen2.5-coder:7b-instruct-q6_K'; // Default to fast model
+      let reason = 'default_fast_model';
+      let timeout = 60000;
+
+      if (taskComplexity === 'high') {
+        // High complexity: Use the heavy model
+        selectedModel = 'qwen2.5-coder:14b-instruct-q4_K_M';
+        reason = 'high_complexity_requires_heavy_model';
+        timeout = 120000;
+      } else if (taskComplexity === 'medium' && recommendations.length > 0) {
+        // Medium complexity: Use performance-based selection
+        const bestModel = recommendations[0];
+        if (bestModel.model in availableModels) {
+          selectedModel = bestModel.model;
+          reason = `performance_based_selection_${bestModel.score}_score`;
+          timeout = availableModels[bestModel.model].timeout;
+        }
+      } else if (taskComplexity === 'low') {
+        // Low complexity: Use fast model for quick generation
+        selectedModel = 'llama3.1:8b-instruct-q4_K_M';
+        reason = 'low_complexity_use_fast_model';
+        timeout = 45000;
+      }
+
+      // Override if we have strong performance data
+      if (recommendations.length > 0) {
+        const topPerformer = recommendations[0];
+        if (topPerformer.successRate > 0.9 && topPerformer.avgResponseTime < 15000) {
+          selectedModel = topPerformer.model;
+          reason = `top_performer_${topPerformer.successRate * 100}%_success_${topPerformer.avgResponseTime}ms_avg`;
+          timeout = availableModels[topPerformer.model]?.timeout || 60000;
+        }
+      }
+
+      return {
+        model: selectedModel,
+        reason: reason,
+        timeout: timeout,
+        complexity: taskComplexity,
+        performanceScore: recommendations.find(r => r.model === selectedModel)?.score || 0
+      };
+
+    } catch (error) {
+      this.logger.warn(`⚠️ Model selection failed, using default: ${error.message}`);
+      return {
+        model: 'qwen2.5-coder:7b-instruct-q6_K',
+        reason: 'fallback_due_to_error',
+        timeout: 60000,
+        complexity: 'medium',
+        performanceScore: 0
+      };
+    }
+  }
+
+  /**
+   * Assess the complexity of a tool generation task
+   */
+  assessTaskComplexity(plan, context) {
+    try {
+      let complexityScore = 0;
+      let complexityFactors = [];
+
+      // Tool type complexity
+      if (plan.toolName === 'create_file') {
+        complexityScore += 2;
+        complexityFactors.push('file_creation');
+      } else if (plan.toolName === 'run_terminal') {
+        complexityScore += 1;
+        complexityFactors.push('terminal_command');
+      } else if (plan.toolName === 'create_directory') {
+        complexityScore += 0;
+        complexityFactors.push('directory_creation');
+      } else if (plan.toolName === 'install_dependency') {
+        complexityScore += 1;
+        complexityFactors.push('dependency_management');
+      } else if (plan.toolName === 'configure_linter') {
+        complexityScore += 2;
+        complexityFactors.push('configuration_setup');
+      } else if (plan.toolName === 'run_tests') {
+        complexityScore += 1;
+        complexityFactors.push('test_execution');
+      }
+
+      // Project type complexity
+      if (plan.context?.projectType === 'nodejs') {
+        complexityScore += 1;
+        complexityFactors.push('nodejs_project');
+      } else if (plan.context?.projectType === 'react' || plan.context?.projectType === 'nextjs') {
+        complexityScore += 2;
+        complexityFactors.push('react_project');
+      } else if (plan.context?.projectType === 'python') {
+        complexityScore += 2;
+        complexityFactors.push('python_project');
+      } else if (plan.context?.projectType === 'fullstack') {
+        complexityScore += 3;
+        complexityFactors.push('fullstack_project');
+      }
+
+      // File content complexity
+      if (plan.context?.fileContent && plan.context.fileContent.length > 1000) {
+        complexityScore += 2;
+        complexityFactors.push('large_file_content');
+      } else if (plan.context?.fileContent && plan.context.fileContent.length > 500) {
+        complexityScore += 1;
+        complexityFactors.push('medium_file_content');
+      }
+
+      // Dependencies complexity
+      if (plan.context?.dependencies && Object.keys(plan.context.dependencies).length > 5) {
+        complexityScore += 1;
+        complexityFactors.push('many_dependencies');
+      }
+
+      // Project structure complexity
+      if (plan.context?.projectStructure && plan.context.projectStructure.depth > 3) {
+        complexityScore += 1;
+        complexityFactors.push('deep_project_structure');
+      }
+
+      // Special requirements
+      if (plan.context?.requiresAuth || plan.context?.requiresDatabase) {
+        complexityScore += 2;
+        complexityFactors.push('authentication_database');
+      }
+
+      // Determine complexity level with more granularity
+      let complexityLevel;
+      let speedOptimization;
+
+      if (complexityScore >= 8) {
+        complexityLevel = 'very_high';
+        speedOptimization = 'use_heavy_model';
+      } else if (complexityScore >= 6) {
+        complexityLevel = 'high';
+        speedOptimization = 'consider_performance_data';
+      } else if (complexityScore >= 4) {
+        complexityLevel = 'medium';
+        speedOptimization = 'balanced_selection';
+      } else if (complexityScore >= 2) {
+        complexityLevel = 'low';
+        speedOptimization = 'use_fast_model';
+      } else {
+        complexityLevel = 'very_low';
+        speedOptimization = 'use_fastest_model';
+      }
+
+      // Log complexity assessment for monitoring
+      this.logger.info(`🔍 Task complexity assessed:`, {
+        score: complexityScore,
+        level: complexityLevel,
+        factors: complexityFactors,
+        optimization: speedOptimization,
+        context: {
+          projectType: plan.context?.projectType,
+          toolName: plan.toolName,
+          hasFileContent: !!plan.context?.fileContent,
+          dependenciesCount: plan.context?.dependencies ? Object.keys(plan.context.dependencies).length : 0
+        }
+      });
+
+      return complexityLevel;
+
+    } catch (error) {
+      this.logger.warn(`⚠️ Complexity assessment failed: ${error.message}`);
+      return 'medium'; // Default to medium complexity
     }
   }
 
@@ -601,6 +1210,10 @@ Respond with valid JSON:
         if (tool.parameters.filename && !tool.parameters.name) {
           fixedTool.parameters.name = tool.parameters.filename;
           this.logger.info(`🔧 Fixed filename -> name for ${tool.name}`);
+        }
+        if (tool.parameters.fileName && !tool.parameters.name) {
+          fixedTool.parameters.name = tool.parameters.fileName;
+          this.logger.info(`🔧 Fixed fileName -> name for ${tool.name}`);
         }
         if (tool.parameters.name && !tool.parameters.filename) {
           fixedTool.parameters.filename = tool.parameters.name;
@@ -737,25 +1350,7 @@ If no folder is specified, respond with "app".`;
     }
   }
 
-  /**
-   * Generate fallback complex tools
-   */
-  generateFallbackComplexTools(prompt) {
-    return [
-      {
-        name: 'create_directory',
-        description: 'Create project structure',
-        parameters: { path: 'project' },
-        context: 'Complex workflow fallback'
-      },
-      {
-        name: 'run_terminal',
-        description: 'Initialize project',
-        parameters: { command: 'echo "Project initialized"', cwd: 'project' },
-        context: 'Complex workflow fallback'
-      }
-    ];
-  }
+  // All fallback methods removed - system is now AI-only
 }
 
 module.exports = AIToolGenerator;

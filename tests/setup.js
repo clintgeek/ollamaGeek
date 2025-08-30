@@ -1,11 +1,37 @@
-// Global test setup and configuration
+// Test setup for Sage Intelligence System
 
-// Increase timeout for all tests
-jest.setTimeout(30000);
+// Mock console methods to reduce noise during tests
+global.console = {
+  ...console,
+  // Uncomment to see all console output during tests
+  // log: jest.fn(),
+  // info: jest.fn(),
+  // warn: jest.fn(),
+  // error: jest.fn(),
+};
+
+// Set test environment variables
+process.env.NODE_ENV = 'test';
+process.env.REQUEST_TIMEOUT = '5000'; // Faster timeouts for tests
+
+// Mock database dependencies (if needed in the future)
+// jest.mock('better-sqlite3', () => {
+//   const mockDb = {
+//     prepare: jest.fn(() => ({
+//       run: jest.fn(() => ({ lastInsertRowid: 1, changes: 1 })),
+//       get: jest.fn(() => null),
+//       all: jest.fn(() => [])
+//     })),
+//     exec: jest.fn(),
+//     close: jest.fn(),
+//     pragma: jest.fn()
+//   };
+//   return jest.fn(() => mockDb);
+// });
 
 // Global test utilities
 global.testUtils = {
-  // Mock logger for testing
+  // Create a mock logger for testing
   createMockLogger: () => ({
     info: jest.fn(),
     error: jest.fn(),
@@ -13,54 +39,35 @@ global.testUtils = {
     debug: jest.fn()
   }),
 
-  // Create test context
-  createTestContext: (workspacePath = '/test/workspace') => ({
-    workspace: { path: workspacePath },
-    files: [],
-    directories: []
-  }),
-
-  // Wait for a specified time
-  wait: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
-
-  // Performance measurement utility
-  measurePerformance: async (fn, description = 'Operation') => {
-    const startTime = performance.now();
-    const result = await fn();
-    const endTime = performance.now();
-    const duration = endTime - startTime;
-
-    console.log(`⏱️ ${description}: ${duration.toFixed(0)}ms`);
-    return { result, duration };
+  // Create test database path
+  getTestDbPath: (testName) => {
+    const path = require('path');
+    return path.join(__dirname, '../data', `test_${testName}_${Date.now()}.db`);
   },
 
-  // Mock Ollama responses
-  mockOllamaResponse: (response) => ({
-    data: { response: typeof response === 'string' ? response : JSON.stringify(response) }
-  }),
+  // Wait for async operations
+  wait: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
 
-  // Mock embedding response
-  mockEmbeddingResponse: (embedding) => ({
-    data: { embedding: embedding || [0.1, 0.2, 0.3, 0.4, 0.5] }
-  })
+  // Mock performance timing
+  mockPerformanceTiming: () => {
+    const startTime = Date.now();
+    return {
+      start: startTime,
+      end: () => Date.now() - startTime
+    };
+  }
 };
 
-// Console output during tests
-beforeEach(() => {
-  console.log('\n🧪 Starting test...');
-});
+// Test timeout configuration
+jest.setTimeout(30000);
 
+// Clean up after each test
 afterEach(() => {
-  console.log('✅ Test completed\n');
+  jest.clearAllMocks();
 });
 
-// Global error handling for unhandled promises
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// Global timeout for all tests
-afterAll(async () => {
-  // Clean up any remaining resources
-  await new Promise(resolve => setTimeout(resolve, 1000));
+// Global test teardown
+afterAll(() => {
+  // Clean up any test artifacts if needed
+  // This can be expanded when we add more test utilities
 });

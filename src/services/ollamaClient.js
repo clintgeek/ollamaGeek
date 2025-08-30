@@ -4,7 +4,7 @@ const { Logger } = require('../utils/logger');
 class OllamaClient {
   constructor() {
     this.baseURL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-    this.timeout = parseInt(process.env.REQUEST_TIMEOUT) || 30000;
+    this.timeout = parseInt(process.env.REQUEST_TIMEOUT) || 120000;
     this.logger = new Logger();
 
     // Configure axios instance

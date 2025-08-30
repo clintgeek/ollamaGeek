@@ -22,7 +22,7 @@ class OllamaGeekClient {
                 prompt: prompt,
                 context: context
             }, {
-                timeout: 30000, // 30 second timeout
+                timeout: 120000, // 2 minute timeout
                 headers: {
                     'Content-Type': 'application/json',
                     'User-Agent': 'VS-Code-PluginGeek'
@@ -50,7 +50,7 @@ class OllamaGeekClient {
                 prompt: userInput,
                 context: workspaceContext
             }, {
-                timeout: 30000, // 30 second timeout
+                timeout: 120000, // 2 minute timeout
                 headers: {
                     'Content-Type': 'application/json',
                     'User-Agent': 'VS-Code-PluginGeek'

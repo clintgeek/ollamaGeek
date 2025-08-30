@@ -16,6 +16,9 @@ const { EnhancedContextManager } = require('./services/enhancedContextManager');
 const IntentRecognizer = require('./services/intentRecognizer');
 const ApproachMapper = require('./services/approachMapper');
 const AIToolGenerator = require('./services/aiToolGenerator');
+const PerformanceDashboard = require('./services/performanceDashboard');
+const workflowRoutes = require('./routes/workflowRoutes');
+const WebSearchService = require('./services/webSearchService');
 
 // Helper function to generate tool plan summary
 function generateToolPlanSummary(toolPlan) {
@@ -41,6 +44,208 @@ function extractTargetPathFromPrompt(prompt) {
   return null;
 }
 
+// Helper function to parse spatial paths intelligently
+function parseSpatialPath(directory, prompt) {
+  const lowerPrompt = prompt.toLowerCase();
+
+  // Handle "root" variations
+  if (lowerPrompt.includes('root') || lowerPrompt.includes('at root') || lowerPrompt.includes('in root') ||
+      lowerPrompt.includes('root directory') || lowerPrompt.includes('root folder')) {
+    return '.'; // Current directory
+  }
+
+  // Handle "current directory" variations
+  if (lowerPrompt.includes('current') || lowerPrompt.includes('here') || lowerPrompt.includes('this directory') ||
+      lowerPrompt.includes('current folder') || lowerPrompt.includes('current dir') || lowerPrompt.includes('this folder') ||
+      lowerPrompt.includes('this dir') || lowerPrompt.includes('present directory') || lowerPrompt.includes('present folder')) {
+    return '.';
+  }
+
+  // Handle "parent directory" variations
+  if (lowerPrompt.includes('parent') || lowerPrompt.includes('parent directory') || lowerPrompt.includes('parent folder') ||
+      lowerPrompt.includes('parent dir') || lowerPrompt.includes('up') || lowerPrompt.includes('one level up') ||
+      lowerPrompt.includes('level up') || lowerPrompt.includes('go up')) {
+    return '..';
+  }
+
+  // Handle "grandparent directory" variations
+  if (lowerPrompt.includes('grandparent') || lowerPrompt.includes('grandparent directory') || lowerPrompt.includes('grandparent folder') ||
+      lowerPrompt.includes('two levels up') || lowerPrompt.includes('two up') || lowerPrompt.includes('level up twice')) {
+    return '../..';
+  }
+
+  // Handle "app" variations
+  if (lowerPrompt.includes('app') || lowerPrompt.includes('app directory') || lowerPrompt.includes('app folder') ||
+      lowerPrompt.includes('app dir') || lowerPrompt.includes('application') || lowerPrompt.includes('application directory')) {
+    return 'app';
+  }
+
+  // Handle "src" variations
+  if (lowerPrompt.includes('src') || lowerPrompt.includes('source') || lowerPrompt.includes('source directory') ||
+      lowerPrompt.includes('source folder') || lowerPrompt.includes('source dir') || lowerPrompt.includes('code')) {
+    return 'src';
+  }
+
+  // Handle "docs" variations
+  if (lowerPrompt.includes('docs') || lowerPrompt.includes('documentation') || lowerPrompt.includes('documents') ||
+      lowerPrompt.includes('docs directory') || lowerPrompt.includes('docs folder') || lowerPrompt.includes('docs dir')) {
+    return 'docs';
+  }
+
+  // Handle "config" variations
+  if (lowerPrompt.includes('config') || lowerPrompt.includes('configuration') || lowerPrompt.includes('config directory') ||
+      lowerPrompt.includes('config folder') || lowerPrompt.includes('config dir') || lowerPrompt.includes('settings')) {
+    return 'config';
+  }
+
+  // Handle "tests" variations
+  if (lowerPrompt.includes('test') || lowerPrompt.includes('tests') || lowerPrompt.includes('testing') ||
+      lowerPrompt.includes('test directory') || lowerPrompt.includes('test folder') || lowerPrompt.includes('test dir') ||
+      lowerPrompt.includes('tests directory') || lowerPrompt.includes('tests folder') || lowerPrompt.includes('tests dir')) {
+    return 'tests';
+  }
+
+  // Handle "dist" or "build" variations
+  if (lowerPrompt.includes('dist') || lowerPrompt.includes('build') || lowerPrompt.includes('output') ||
+      lowerPrompt.includes('dist directory') || lowerPrompt.includes('build directory') || lowerPrompt.includes('output directory')) {
+    return 'dist';
+  }
+
+  // Default to app directory for file operations
+  return directory;
+}
+
+// Helper function to execute tools
+async function executeTools(tools, prompt) {
+  try {
+    console.log(`🔧 Executing ${tools.length} tools for: "${prompt}"`);
+
+    const results = [];
+
+    for (const tool of tools) {
+      try {
+        // Handle different tool types - support both AI-generated and standard formats
+        let toolName = tool.name || tool.toolName;
+        const toolParams = tool.params || tool.parameters || {};
+
+        console.log(`🔧 Executing tool: ${toolName}`);
+
+        if (toolName === 'createFile' || toolName === 'create_file') {
+          const fs = require('fs').promises;
+          const path = require('path');
+
+          // Handle different parameter formats - prioritize AI context
+          const filePath = toolParams?.name || toolParams?.filename || toolParams?.filePath || 'unknown.txt';
+          const content = toolParams?.content || toolParams?.fileContent || '// File created by PluginGeek';
+          let directory = tool.context?.targetDir || toolParams?.targetDirectory || '/Users/ccrocker/projects';
+
+          // Debug logging to see what we're getting
+          console.log(`🔍 Tool params:`, JSON.stringify(toolParams));
+          console.log(`🔍 Tool context:`, JSON.stringify(tool.context));
+          console.log(`🔍 Selected directory:`, directory);
+
+          // NO SPATIAL PATH PARSING - USE AI PATHS DIRECTLY
+
+                    // Handle absolute vs relative paths
+          let fullPath;
+          if (path.isAbsolute(directory) || directory.startsWith('/Users/ccrocker/projects/')) {
+            // If it's an absolute path or project path, use it directly
+            fullPath = path.join(directory, filePath);
+          } else {
+            // If it's a relative path, prepend current directory
+            fullPath = path.join(process.cwd(), directory, filePath);
+          }
+          const dir = path.dirname(fullPath);
+
+          await fs.mkdir(dir, { recursive: true });
+          await fs.writeFile(fullPath, content);
+
+          results.push({
+            tool: toolName,
+            success: true,
+            result: { filePath: fullPath, size: content.length }
+          });
+
+          console.log(`✅ File created: ${fullPath}`);
+
+        } else if (toolName === 'createDirectory' || toolName === 'create_directory') {
+          const fs = require('fs').promises;
+          const path = require('path');
+
+          // Use AI's targetDirectory directly - no more path manipulation
+          const fullPath = tool.context?.targetDir || toolParams?.targetDirectory || '/Users/ccrocker/projects';
+
+          await fs.mkdir(fullPath, { recursive: true });
+
+          results.push({
+            tool: toolName,
+            success: true,
+            result: { directory: fullPath }
+          });
+
+          console.log(`✅ Directory created: ${fullPath}`);
+
+        } else if (toolName === 'runTerminal' || toolName === 'run_terminal') {
+          const { exec } = require('child_process');
+          const util = require('util');
+          const execAsync = util.promisify(exec);
+
+          // Handle different parameter formats
+          const command = toolParams?.command || toolParams?.cmd || 'echo "No command specified"';
+          const cwd = toolParams?.cwd || toolParams?.workingDirectory || tool.context?.targetDir || process.cwd();
+
+          console.log(`🔧 Executing terminal command: ${command} in ${cwd}`);
+
+          try {
+            const { stdout, stderr } = await execAsync(command, { cwd });
+            console.log(`✅ Terminal command executed successfully`);
+            if (stdout) console.log(`📤 Output: ${stdout}`);
+            if (stderr) console.log(`⚠️ Stderr: ${stderr}`);
+
+            results.push({
+              tool: toolName,
+              success: true,
+              result: { command, cwd, stdout, stderr }
+            });
+          } catch (error) {
+            console.error(`❌ Terminal command failed: ${error.message}`);
+            results.push({
+              tool: toolName,
+              success: false,
+              error: error.message
+            });
+          }
+
+        } else {
+          results.push({
+            tool: toolName,
+            success: false,
+            error: `Unknown tool type: ${toolName}`
+          });
+        }
+
+      } catch (error) {
+        console.error(`❌ Tool ${toolName} execution failed:`, error);
+        results.push({
+          tool: toolName,
+          success: false,
+          error: error.message
+        });
+      }
+    }
+
+    return {
+      success: results.every(r => r.success),
+      results: results,
+      prompt: prompt
+    };
+
+  } catch (error) {
+    console.error('❌ Tool execution failed:', error);
+    throw error;
+  }
+}
+
 const app = express();
 const PORT = process.env.PORT || 3003;
 
@@ -55,6 +260,8 @@ const enhancedContextManager = new EnhancedContextManager();
 const intentRecognizer = new IntentRecognizer();
 const approachMapper = new ApproachMapper();
 const aiToolGenerator = new AIToolGenerator();
+const performanceDashboard = new PerformanceDashboard();
+const webSearchService = new WebSearchService();
 
 // Middleware
 app.use(helmet());
@@ -896,7 +1103,25 @@ app.post('/api/chat/unified', async (req, res, next) => {
          console.log(`🔧 Simple execution task detected, using AI-powered tool generation...`);
 
          // Use AI Tool Generator for intelligent tool creation
-         const tools = await aiToolGenerator.generateToolsForIntent(prompt, intentResult, context);
+         const enhancedContext = {
+           ...context,
+           targetDir: intentResult.targetDir || 'app',
+           projectType: intentResult.intent === 'app_creation' ? 'nodejs' : 'file_ops',
+           projectName: intentResult.intent === 'app_creation' ? 'app_creation' : 'file_ops'
+         };
+         const tools = await aiToolGenerator.generateToolsForIntent(prompt, intentResult, enhancedContext);
+
+         // Execute the tools if any were generated
+         let executionResult = null;
+         if (tools && tools.length > 0) {
+           console.log(`🚀 Executing ${tools.length} tools...`);
+           try {
+             executionResult = await executeTools(tools, prompt);
+             console.log(`✅ Tools executed successfully`);
+           } catch (error) {
+             console.error(`❌ Tool execution failed:`, error);
+           }
+         }
 
          return res.json({
            type: 'execution_task',
@@ -909,59 +1134,33 @@ app.post('/api/chat/unified', async (req, res, next) => {
              intent: intentResult.intent,
              complexity: intentResult.complexity,
              confidence: intentResult.confidence
-           }
+           },
+           executionResult: executionResult
          });
 
        } else if (actionType === 'execution_complex') {
-         console.log(`🔧 Complex execution task detected, using AI planning...`);
+         console.log(`🔧 Complex execution task detected, using AI-powered tool generation...`);
 
-         // Use Smart Workspace Context Manager for intelligent context awareness
-         const SmartWorkspaceContextManager = require('./services/smartWorkspaceContextManager');
-         const smartContextManager = new SmartWorkspaceContextManager();
-
-         // Extract target path from prompt for context analysis
-         const targetPath = extractTargetPathFromPrompt(prompt);
-         console.log(`🔍 Analyzing workspace context for target: ${targetPath}`);
-
-         // Get intelligent workspace context
-         const workspaceContext = await smartContextManager.analyzeWorkspaceContext(targetPath);
-         console.log(`🔍 Workspace context analyzed:`, workspaceContext);
-
-         // Get context recommendations
-         const contextRequest = await enhancedContextManager.getContextRecommendations(prompt);
-         const contextResponse = await enhancedContextManager.requestContext(contextRequest);
-         const planningContext = await enhancedContextManager.analyzeContextForPlanning(prompt, contextResponse);
-
-         // Enhance planning context with smart workspace analysis
-         const enhancedPlanningContext = {
-           ...planningContext,
-           workspace: workspaceContext.workspace,
-           target: workspaceContext.target,
-           patterns: workspaceContext.patterns,
-           conflicts: workspaceContext.conflicts,
-           recommendations: workspaceContext.recommendations
+         // Use AI Tool Generator for complex tasks too - no more old orchestrator!
+         const enhancedContext = {
+           ...context,
+           targetDir: intentResult.targetDir || 'app',
+           projectType: intentResult.intent === 'app_creation' ? 'nodejs' : 'file_ops',
+           projectName: intentResult.intent === 'app_creation' ? 'app_creation' : 'file_ops'
          };
-
-         // Generate tool plan with enhanced context
-         const toolPlan = await agenticExecutor.planTools({ prompt }, enhancedPlanningContext);
+         const tools = await aiToolGenerator.generateToolsForIntent(prompt, intentResult, enhancedContext);
 
          return res.json({
            type: 'execution_task',
-           message: toolPlan.description || `I'll help you with: ${prompt}`,
-           tools: toolPlan.tools.map(tool => ({
-             name: tool.tool,
-             description: tool.description,
-             parameters: tool.parameters || {},
-             context: tool.context || ''
-           })),
+           message: `I'll execute this complex task for you: ${prompt}`,
+           tools: tools,
            requiresApproval: true,
            modelUsed: 'ai_intent_recognition',
-           actionType: actionType,
+           actionType: 'execution_complex',
            context: {
-             workspace: planningContext.workspace,
-             feature: planningContext.feature,
-             rules: planningContext.rules,
-             summary: planningContext.contextSummary
+             intent: intentResult.intent,
+             complexity: intentResult.complexity,
+             confidence: intentResult.confidence
            }
          });
        }
@@ -987,6 +1186,81 @@ app.post('/api/chat/unified', async (req, res, next) => {
     next(error);
   }
 });
+
+// Performance Dashboard endpoint
+app.get('/api/performance', async (req, res, next) => {
+  try {
+    const overview = await performanceDashboard.getPerformanceOverview();
+    res.json(overview);
+  } catch (error) {
+    console.error('❌ Error in performance dashboard:', error.message);
+    next(error);
+  }
+});
+
+// Web Search endpoint
+app.post('/api/search', async (req, res, next) => {
+  try {
+    const { query, provider = 'duckduckgo', maxResults = 5 } = req.body;
+
+    if (!query) {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+
+    console.log(`🔍 Web search request: "${query}" using ${provider}`);
+
+    const searchResults = await webSearchService.searchWeb(query, {
+      provider,
+      maxResults,
+      includeContent: true,
+      useCache: true
+    });
+
+    res.json({
+      success: true,
+      query,
+      provider,
+      results: searchResults,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Error in web search:', error.message);
+    next(error);
+  }
+});
+
+// Web Search cache management
+app.get('/api/search/cache/stats', (req, res) => {
+  try {
+    const stats = webSearchService.getCacheStats();
+    res.json({
+      success: true,
+      stats,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Error getting cache stats:', error.message);
+    res.status(500).json({ error: 'Failed to get cache stats' });
+  }
+});
+
+app.delete('/api/search/cache', (req, res) => {
+  try {
+    webSearchService.clearCache();
+    res.json({
+      success: true,
+      message: 'Search cache cleared',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Error clearing cache:', error.message);
+    res.status(500).json({ error: 'Failed to clear cache' });
+  }
+});
+
+// Workflow Orchestration endpoints
+app.use('/api/workflows', workflowRoutes);
 
 // Error handling middleware
 app.use(ErrorHandler.middleware);

@@ -1,20 +1,36 @@
 const axios = require('axios');
 const { Logger } = require('../utils/logger');
+const PerformanceMonitor = require('./performanceMonitor');
 
 class IntentRecognizer {
   constructor() {
     this.logger = new Logger();
     this.ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    this.performanceMonitor = new PerformanceMonitor();
 
     // Semantic intent categories with example embeddings
     this.intentCategories = {
+      conversational: {
+        description: 'Basic conversation, greetings, and casual chat',
+        examples: [
+          'hello',
+          'hi there',
+          'how are you',
+          'good morning',
+          'thanks',
+          'nice to meet you',
+          'what\'s up',
+          'how\'s it going'
+        ]
+      },
       direct_actions: {
-        description: 'Simple tasks that can be executed immediately',
+        description: 'Simple computational or informational tasks',
         examples: [
           'what is 2 + 2',
-          'hello there',
-          'how tall are you',
-          'calculate 15 * 3'
+          'calculate 15 * 3',
+          'what time is it',
+          'convert 100 dollars to euros',
+          'how many days until christmas'
         ]
       },
       file_operations: {
@@ -203,6 +219,10 @@ Respond with JSON:
 
       this.logger.info(`🧠 Running comprehensive AI analysis with ${intentCategory} category`);
 
+      // Start performance monitoring
+      const operationId = `intent_analysis_${Date.now()}`;
+      this.performanceMonitor.startTiming(operationId, 'granite3.3:8b', 'intent_analysis');
+
       const response = await axios.post(`${this.ollamaBaseUrl}/api/generate`, {
         model: 'granite3.3:8b',
         prompt: analysisPrompt,
@@ -211,7 +231,10 @@ Respond with JSON:
           temperature: 0.1,
           top_p: 0.9
         }
-      }, { timeout: 30000 });
+      }, { timeout: 120000 });
+
+      // End performance monitoring
+      this.performanceMonitor.endTiming(operationId, true);
 
       const content = response.data.response;
       const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -266,6 +289,10 @@ Respond with JSON:
   "reasoning": "Detailed explanation of why this approach was chosen"
 }`;
 
+      // Start performance monitoring
+      const operationId = `approach_determination_${Date.now()}`;
+      this.performanceMonitor.startTiming(operationId, 'qwen2.5:1.5b-instruct-q4_K_M', 'approach_determination');
+
       const response = await axios.post(`${this.ollamaBaseUrl}/api/generate`, {
         model: 'qwen2.5:1.5b-instruct-q4_K_M',
         prompt: approachPrompt,
@@ -274,7 +301,10 @@ Respond with JSON:
           temperature: 0.1,
           top_p: 0.9
         }
-      }, { timeout: 30000 });
+      }, { timeout: 120000 });
+
+      // End performance monitoring
+      this.performanceMonitor.endTiming(operationId, true);
 
       const content = response.data.response;
       const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -321,6 +351,10 @@ Provide JSON response:
   "reasoning": "Fallback analysis due to system error"
 }`;
 
+      // Start performance monitoring
+      const operationId = `fallback_analysis_${Date.now()}`;
+      this.performanceMonitor.startTiming(operationId, 'granite3.3:8b', 'fallback_analysis');
+
       const response = await axios.post(`${this.ollamaBaseUrl}/api/generate`, {
         model: 'granite3.3:8b',
         prompt: fallbackPrompt,
@@ -329,7 +363,10 @@ Provide JSON response:
           temperature: 0.1,
           top_p: 0.9
         }
-      }, { timeout: 30000 });
+      }, { timeout: 120000 });
+
+      // End performance monitoring
+      this.performanceMonitor.endTiming(operationId, true);
 
       const content = response.data.response;
       const jsonMatch = content.match(/\{[\s\S]*\}/);
